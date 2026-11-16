@@ -8,6 +8,7 @@ import com.neurosys.backend.repository.LabRepository;
 import com.neurosys.backend.service.LabService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -40,7 +41,8 @@ public class AgentDownloadController {
     @Operation(summary = "Download Lab-Preconfigured NeuroSys Agent Package", description = "Generates a .zip package containing agent binary, pre-configured agent.properties, and enrollment code for the target lab")
     public ResponseEntity<byte[]> downloadAgentPackage(
             @RequestParam(required = false) String labId,
-            @RequestParam(required = false) String enrollmentCode) {
+            @RequestParam(required = false) String enrollmentCode,
+            HttpServletRequest request) {
         
         Lab lab;
         if (labId != null && !labId.isEmpty() && !"ALL".equalsIgnoreCase(labId)) {
@@ -51,6 +53,19 @@ public class AgentDownloadController {
             lab = labRepository.findAll().stream().findFirst()
                     .orElseThrow(() -> new ResourceNotFoundException("Lab", "default", "none"));
         }
+
+        // Dynamically resolve server base URL from request or fallback to production
+        String scheme = request.getHeader("X-Forwarded-Proto");
+        if (scheme == null || scheme.isEmpty()) {
+            scheme = request.getScheme();
+        }
+        String host = request.getHeader("X-Forwarded-Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getHeader("Host");
+        }
+        String resolvedServerUrl = (host != null && !host.isEmpty())
+                ? scheme + "://" + host + "/api/v1"
+                : "https://realtimesystem-production.up.railway.app/api/v1";
 
         String activeCode = enrollmentCode;
         if (activeCode == null || activeCode.isEmpty()) {
@@ -72,11 +87,11 @@ public class AgentDownloadController {
             String propsContent = String.format(
                     "# NeuroSys Agent Configuration Package\n" +
                     "# Generated for: %s (%s)\n" +
-                    "server.url=https://realtimesystemmonitoring-production-7322.up.railway.app/api/v1\n" +
+                    "server.url=%s\n" +
                     "agent.enrollment.code=%s\n" +
                     "agent.lab.name=%s\n" +
                     "agent.collection.interval.seconds=1\n",
-                    lab.getName(), lab.getCode(), activeCode, lab.getName()
+                    lab.getName(), lab.getCode(), resolvedServerUrl, activeCode, lab.getName()
             );
             writeZipEntry(zos, "agent.properties", propsContent.getBytes());
 
@@ -327,7 +342,7 @@ public class AgentDownloadController {
                     "cd /d \"%~dp0\"\r\n" +
                     ":: Clear stale stopped.flag so agent starts fresh on every boot/task trigger\r\n" +
                     "if exist \"%~dp0cache\\stopped.flag\" del /f /q \"%~dp0cache\\stopped.flag\" >nul 2>&1\r\n" +
-                    "set \"NEUROSYS_SERVER_URL=https://realtimesystem-production.up.railway.app/api/v1\"\r\n" +
+                    "set \"NEUROSYS_SERVER_URL=" + resolvedServerUrl + "\"\r\n" +
                     "set \"NEUROSYS_LAB_NAME=" + lab.getName() + "\"\r\n" +
                     "set \"NEUROSYS_ENROLLMENT_CODE=" + activeCode + "\"\r\n" +
                     ":: Detect Java - try bundled JRE first, then common install paths, then PATH\r\n" +

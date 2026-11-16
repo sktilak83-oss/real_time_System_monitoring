@@ -93,7 +93,7 @@ const Dashboard = () => {
       const compList = Array.isArray(compData) ? compData : (compData?.data || []);
       const alertList = Array.isArray(alertData) ? alertData : (alertData?.data || []);
 
-      if (Array.isArray(compList) && compList.length > 0) {
+      if (Array.isArray(compList)) {
         setComputers(compList);
         try {
           sessionStorage.setItem('neurosys_computers_cache', JSON.stringify(compList));

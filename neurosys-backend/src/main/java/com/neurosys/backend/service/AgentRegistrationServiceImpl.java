@@ -54,6 +54,18 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
             }
         }
 
+        // Secondary fallback: if no valid enrollment code was passed, try looking up by labName if specified
+        if (assignedLab == null && request.getLabName() != null && !request.getLabName().trim().isEmpty()) {
+            String reqLab = request.getLabName().trim();
+            Optional<Lab> byName = labRepository.findAll().stream()
+                    .filter(l -> l.getName().equalsIgnoreCase(reqLab) || l.getCode().equalsIgnoreCase(reqLab))
+                    .findFirst();
+            if (byName.isPresent()) {
+                assignedLab = byName.get();
+                log.info("[INFO] Matched lab by labName '{}' → Assigned to Lab: {}", reqLab, assignedLab.getName());
+            }
+        }
+
         // Look up by persistent Agent ID, MAC, or Hostname
         Optional<Computer> existingByAgentId = computerRepository.findByAgentId(request.getAgentId());
         Optional<Computer> existingByMac = request.getMacAddress() != null && !request.getMacAddress().isEmpty() 
