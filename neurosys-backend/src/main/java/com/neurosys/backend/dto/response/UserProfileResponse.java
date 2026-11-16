@@ -16,6 +16,8 @@ public class UserProfileResponse {
     private String username;
     private String email;
     private String role;
+    private String assignedLabId;
+    private String assignedLabName;
     private boolean active;
     private Instant createdAt;
 }

@@ -34,6 +34,10 @@ public class User extends BaseEntity {
     @Column(name = "role", nullable = false, length = 50)
     private Role role;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "assigned_lab_id")
+    private Lab assignedLab;
+
     @Column(name = "active", nullable = false)
     @Builder.Default
     private boolean active = true;

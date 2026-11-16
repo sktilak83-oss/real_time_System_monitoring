@@ -82,18 +82,13 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
             if (request.getTotalRamMb() != null) computer.setTotalRamMb(request.getTotalRamMb());
             if (request.getAgentVersion() != null) computer.setAgentVersion(request.getAgentVersion());
             
+            // Only update lab assignment if a valid enrollment code was explicitly supplied
             if (assignedLab != null) {
                 computer.setLab(assignedLab);
                 computer.setLabName(assignedLab.getName());
-            } else if (computer.getLab() == null) {
-                // Default to Computer Lab 1 if not already linked
-                Optional<Lab> defaultLab = labRepository.findByCodeIgnoreCase("LAB-001");
-                if (defaultLab.isPresent()) {
-                    Lab l = defaultLab.get();
-                    computer.setLab(l);
-                    computer.setLabName(l.getName());
-                }
+                log.info("[INFO] Updated computer {} lab assignment via enrollment code to Lab: {}", computer.getHostname(), assignedLab.getName());
             }
+            // Preserve existing computer.getLab() on re-registration/heartbeat! Never overwrite or reset to default!
 
             computer.setStatus(ComputerStatus.ONLINE);
             computer.setLastSeenAt(Instant.now());
@@ -102,11 +97,7 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
         } else {
             log.info("[INFO] New computer agent registered: AgentID={}, Hostname={}", request.getAgentId(), request.getHostname());
             
-            if (assignedLab == null) {
-                // Fallback to Lab 1
-                assignedLab = labRepository.findByCodeIgnoreCase("LAB-001").orElse(null);
-            }
-
+            // If no valid enrollment code was provided, computer remains unassigned (lab = null) for Super Admin review
             computer = Computer.builder()
                     .agentId(request.getAgentId())
                     .hostname(request.getHostname())
@@ -116,14 +107,14 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
                     .osName(request.getOsName() != null ? request.getOsName() : "Windows")
                     .osVersion(request.getOsVersion() != null ? request.getOsVersion() : "11")
                     .lab(assignedLab)
-                    .labName(assignedLab != null ? assignedLab.getName() : "Computer Lab 1")
+                    .labName(assignedLab != null ? assignedLab.getName() : null)
                     .cpuModel(request.getCpuModel())
                     .totalRamMb(request.getTotalRamMb())
                     .agentVersion(request.getAgentVersion())
                     .status(ComputerStatus.ONLINE)
                     .lastSeenAt(Instant.now())
                     .build();
-            log.info("[INFO] New PC {} registered as ONLINE in Lab {}", computer.getHostname(), computer.getLabName());
+            log.info("[INFO] New PC {} registered as ONLINE with Lab: {}", computer.getHostname(), computer.getLabName() != null ? computer.getLabName() : "UNASSIGNED");
         }
 
         computer = computerRepository.save(computer);

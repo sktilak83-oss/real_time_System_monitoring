@@ -73,6 +73,8 @@ public class AuthServiceImpl implements AuthService {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .role(user.getRole().name())
+                .assignedLabId(user.getAssignedLab() != null ? user.getAssignedLab().getId() : null)
+                .assignedLabName(user.getAssignedLab() != null ? user.getAssignedLab().getName() : null)
                 .build();
     }
 
@@ -183,6 +185,8 @@ public class AuthServiceImpl implements AuthService {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .role(user.getRole().name())
+                .assignedLabId(user.getAssignedLab() != null ? user.getAssignedLab().getId() : null)
+                .assignedLabName(user.getAssignedLab() != null ? user.getAssignedLab().getName() : null)
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .build();

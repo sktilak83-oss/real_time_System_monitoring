@@ -18,6 +18,8 @@ public class UserPrincipal implements UserDetails {
     private String username;
     private String email;
     private String password;
+    private String assignedLabId;
+    private String role;
     private Collection<? extends GrantedAuthority> authorities;
     private boolean active;
 
@@ -28,6 +30,8 @@ public class UserPrincipal implements UserDetails {
                 user.getUsername(),
                 user.getEmail(),
                 user.getPasswordHash(),
+                user.getAssignedLab() != null ? user.getAssignedLab().getId() : null,
+                user.getRole().name(),
                 Collections.singletonList(authority),
                 user.isActive()
         );
