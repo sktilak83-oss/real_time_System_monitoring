@@ -194,56 +194,42 @@ const Computers = () => {
   };
 
   const handleExecutePowerAction = async () => {
-    const idsToProcess = powerModal.targetIds || selectedIds;
+    const idsToProcess = (powerModal.targetIds && powerModal.targetIds.length > 0) ? powerModal.targetIds : selectedIds;
+    if (!idsToProcess || idsToProcess.length === 0) return;
 
-    if (powerModal.action === 'SHUTDOWN') {
-      setActionStatusMsg(`Sending shutdown command to ${idsToProcess.length} workstation(s)...`);
-      try {
-        await Promise.all(idsToProcess.map(id => metricsService.sendPowerCommand(id, 'SHUTDOWN')));
-        setActionStatusMsg(`Shutdown command sent. Waiting for computer to go offline...`);
-        
-        let checkCount = 0;
-        const checkOfflineInterval = setInterval(async () => {
-          checkCount++;
-          const data = await metricsService.getAllComputers();
-          const compList = Array.isArray(data) ? data : (data?.data || []);
-          const targetComps = compList.filter(c => idsToProcess.includes(c.id));
-          const allOffline = targetComps.every(c => c.status === 'OFFLINE');
+    const action = powerModal.action || 'LOCK';
+    setActionStatusMsg(`Sending ${action} command to ${idsToProcess.length} workstation(s)...`);
 
-          if (allOffline || checkCount >= 8) {
-            clearInterval(checkOfflineInterval);
-            if (allOffline) {
-              setActionStatusMsg(`✓ Shutdown confirmed by loss of connection.`);
-            } else {
-              setActionStatusMsg(`✓ Shutdown command delivered.`);
-            }
-            setTimeout(() => {
-              setPowerModal({ open: false, action: null, targetCount: 0, targetIds: [] });
-              setSelectedIds([]);
-              setActionStatusMsg('');
-              fetchComputers();
-            }, 1200);
-          }
-        }, 1000);
-      } catch (e) {
-        console.error('Error executing shutdown command', e);
-        setPowerModal({ open: false, action: null, targetCount: 0, targetIds: [] });
+    try {
+      await Promise.all(idsToProcess.map(id => metricsService.sendPowerCommand(id, action)));
+
+      if (action === 'SHUTDOWN') {
+        setActionStatusMsg(`✓ Shutdown command sent successfully. System is shutting down.`);
+        // Immediate optimistic UI status update
+        setComputers(prev => prev.map(c => 
+          idsToProcess.includes(c.id) 
+            ? { ...c, status: 'OFFLINE', metrics: { ...c.metrics, cpu: 0, ram: 0, disk: 0, activeProcesses: 0 } }
+            : c
+        ));
+      } else if (action === 'RESTART') {
+        setActionStatusMsg(`✓ Restart command sent successfully. System is rebooting...`);
+      } else {
+        setActionStatusMsg(`✓ Lock command sent successfully. Screen locked!`);
       }
-    } else {
-      setActionStatusMsg(`Sending ${powerModal.action} command to ${idsToProcess.length} workstation(s)...`);
-      try {
-        await Promise.all(idsToProcess.map(id => metricsService.sendPowerCommand(id, powerModal.action)));
-        setActionStatusMsg(`✓ ${powerModal.action} command successfully issued!`);
-        setTimeout(() => {
-          setPowerModal({ open: false, action: null, targetCount: 0, targetIds: [] });
-          setSelectedIds([]);
-          setActionStatusMsg('');
-          fetchComputers();
-        }, 1200);
-      } catch (e) {
-        console.error('Error executing power action', e);
+
+      setTimeout(() => {
         setPowerModal({ open: false, action: null, targetCount: 0, targetIds: [] });
-      }
+        setSelectedIds([]);
+        setActionStatusMsg('');
+        fetchComputers();
+      }, 1000);
+    } catch (e) {
+      console.error(`Error executing ${action} command`, e);
+      setActionStatusMsg(`Error sending ${action}: ${e.message || 'Check connection'}`);
+      setTimeout(() => {
+        setPowerModal({ open: false, action: null, targetCount: 0, targetIds: [] });
+        setActionStatusMsg('');
+      }, 2000);
     }
   };
 

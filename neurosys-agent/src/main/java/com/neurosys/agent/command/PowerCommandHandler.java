@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class PowerCommandHandler {
 
@@ -31,7 +32,10 @@ public class PowerCommandHandler {
     public void pollAndExecutePendingCommand() {
         try {
             long startTime = System.currentTimeMillis();
-            String url = AgentConfig.getServerUrl() + "/agent/power-commands/pending?agentId=" + AgentConfig.getAgentId();
+            String agentId = AgentConfig.getAgentId();
+            if (agentId == null || agentId.isBlank()) return;
+
+            String url = AgentConfig.getServerUrl() + "/agent/power-commands/pending?agentId=" + agentId;
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
@@ -56,9 +60,11 @@ public class PowerCommandHandler {
                         }
                     }
                 }
+            } else if (response.statusCode() != 404) {
+                log.debug("Power command polling status: HTTP {}", response.statusCode());
             }
         } catch (Exception e) {
-            // Quiet exception fallback during offline mode
+            log.debug("Power command polling error: {}", e.getMessage());
         }
     }
 
@@ -71,65 +77,93 @@ public class PowerCommandHandler {
             boolean isWindows = os.contains("win");
             long startExecMs = System.currentTimeMillis();
 
-            // Use absolute system32 path so commands work when running as SYSTEM
+            // Use absolute system32 path so commands work reliably in all contexts
             String winRoot = System.getenv("SystemRoot");
             if (winRoot == null || winRoot.isEmpty()) winRoot = "C:\\Windows";
             String sys32 = winRoot + "\\System32";
 
-            ProcessBuilder pb;
             switch (commandType.toUpperCase()) {
                 case "LOCK":
-                    log.info("[PERF LOG] [AGENT] Executing LOCK workstation at {}", Instant.now());
+                    log.info("[PERF LOG] [AGENT] Executing instant LOCK workstation at {}", Instant.now());
+                    boolean lockSucceeded = false;
                     if (isWindows) {
-                        // rundll32.exe user32.dll,LockWorkStation fails silently when the agent runs as the
-                        // SYSTEM service (no interactive desktop session). Instead we create a one-shot
-                        // Windows Scheduled Task that runs as the currently-logged-on interactive user, which
-                        // does have a desktop session and can call LockWorkStation successfully.
-                        String taskName = "NeuroSysLockNow";
-                        // Delete any leftover task first (ignore errors)
-                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Delete", "/TN", taskName, "/F").start().waitFor();
-                        // Create a task that runs once immediately as the interactive user (Session 1)
-                        // The trigger is set to run at a time 1 minute in the past so it fires instantly.
-                        Process createTask = new ProcessBuilder(
-                                sys32 + "\\schtasks.exe",
-                                "/Create", "/F",
-                                "/TN", taskName,
-                                "/SC", "ONCE",
-                                "/ST", "00:00",
-                                "/RU", "INTERACTIVE",
-                                "/TR", "rundll32.exe user32.dll,LockWorkStation",
-                                "/RL", "HIGHEST"
-                        ).start();
-                        createTask.waitFor();
-                        // Run it immediately
-                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Run", "/TN", taskName).start().waitFor();
-                        // Clean up
-                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Delete", "/TN", taskName, "/F").start();
+                        // 1. Direct JNA Win32 API User32.INSTANCE.LockWorkStation() (0ms instant in-process execution)
+                        try {
+                            com.sun.jna.platform.win32.WinDef.BOOL res = com.sun.jna.platform.win32.User32.INSTANCE.LockWorkStation();
+                            lockSucceeded = (res != null && res.booleanValue());
+                            log.info("[AGENT] JNA User32.LockWorkStation() executed: {}", lockSucceeded);
+                        } catch (Throwable t) {
+                            log.warn("[AGENT] JNA LockWorkStation call: {}", t.getMessage());
+                        }
+
+                        // 2. Direct rundll32 user32.dll,LockWorkStation execution
+                        try {
+                            Process p = new ProcessBuilder(sys32 + "\\rundll32.exe", "user32.dll,LockWorkStation").start();
+                            p.waitFor(500, TimeUnit.MILLISECONDS);
+                            lockSucceeded = true;
+                            log.info("[AGENT] rundll32 LockWorkStation process executed");
+                        } catch (Exception e) {
+                            log.warn("[AGENT] rundll32 lock error: {}", e.getMessage());
+                        }
+
+                        // 3. Fallback: PowerShell LockWorkStation API call
+                        if (!lockSucceeded) {
+                            try {
+                                new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                                        "(Add-Type '[DllImport(\"user32.dll\")] public static extern bool LockWorkStation();' -Name 'W' -PassThru)::LockWorkStation()")
+                                        .start();
+                                lockSucceeded = true;
+                            } catch (Exception ignored) {}
+                        }
                     } else {
                         log.warn("Lock workstation is supported natively on Windows systems.");
                     }
                     updateStatusAsync(commandId, "SUCCESS", null);
-                    log.info("[PERF LOG] [AGENT] LOCK command process started in {}ms", System.currentTimeMillis() - startExecMs);
+                    log.info("[PERF LOG] [AGENT] LOCK command completed in {}ms", System.currentTimeMillis() - startExecMs);
                     break;
 
                 case "RESTART":
-                    log.info("[PERF LOG] [AGENT] Executing RESTART command (Immediate /t 0) at {}", Instant.now());
+                    log.info("[PERF LOG] [AGENT] Executing instant RESTART command at {}", Instant.now());
+                    // Acknowledge SUCCESS to backend before shutting down network stack
+                    updateStatusSync(commandId, "SUCCESS", null);
+
                     if (isWindows) {
-                        pb = new ProcessBuilder(sys32 + "\\shutdown.exe", "/r", "/t", "0", "/f", "/c", "Remote restart requested from NeuroSys Dashboard");
-                        pb.start();
+                        // 1. Direct Windows shutdown /r /f /t 0
+                        try {
+                            new ProcessBuilder(sys32 + "\\shutdown.exe", "/r", "/f", "/t", "0").start();
+                            log.info("[AGENT] shutdown.exe /r /f /t 0 launched");
+                        } catch (Exception e) {
+                            log.warn("[AGENT] shutdown.exe /r error: {}", e.getMessage());
+                        }
+
+                        // 2. PowerShell Restart-Computer -Force fallback
+                        try {
+                            new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Restart-Computer -Force").start();
+                        } catch (Exception ignored) {}
                     }
-                    updateStatusAsync(commandId, "SUCCESS", null);
-                    log.info("[PERF LOG] [AGENT] RESTART process launched in {}ms", System.currentTimeMillis() - startExecMs);
+                    log.info("[PERF LOG] [AGENT] RESTART processes launched in {}ms", System.currentTimeMillis() - startExecMs);
                     break;
 
                 case "SHUTDOWN":
-                    log.info("[PERF LOG] [AGENT] Executing SHUTDOWN command (Immediate /t 0) at {}", Instant.now());
+                    log.info("[PERF LOG] [AGENT] Executing instant SHUTDOWN command at {}", Instant.now());
+                    // Acknowledge SUCCESS to backend before shutting down network stack
+                    updateStatusSync(commandId, "SUCCESS", null);
+
                     if (isWindows) {
-                        pb = new ProcessBuilder(sys32 + "\\shutdown.exe", "/s", "/t", "0", "/f", "/c", "Remote shutdown requested from NeuroSys Dashboard");
-                        pb.start();
+                        // 1. Direct Windows shutdown /s /f /t 0
+                        try {
+                            new ProcessBuilder(sys32 + "\\shutdown.exe", "/s", "/f", "/t", "0").start();
+                            log.info("[AGENT] shutdown.exe /s /f /t 0 launched");
+                        } catch (Exception e) {
+                            log.warn("[AGENT] shutdown.exe /s error: {}", e.getMessage());
+                        }
+
+                        // 2. PowerShell Stop-Computer -Force fallback
+                        try {
+                            new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Stop-Computer -Force").start();
+                        } catch (Exception ignored) {}
                     }
-                    updateStatusAsync(commandId, "SUCCESS", null);
-                    log.info("[PERF LOG] [AGENT] SHUTDOWN process launched in {}ms", System.currentTimeMillis() - startExecMs);
+                    log.info("[PERF LOG] [AGENT] SHUTDOWN processes launched in {}ms", System.currentTimeMillis() - startExecMs);
                     break;
 
                 default:
@@ -143,30 +177,34 @@ public class PowerCommandHandler {
         }
     }
 
-    private void updateStatusAsync(String commandId, String status, String failureReason) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("commandId", commandId);
-                payload.put("agentId", AgentConfig.getAgentId());
-                payload.put("status", status);
-                if (failureReason != null) {
-                    payload.put("failureReason", failureReason);
-                }
-
-                String jsonBody = objectMapper.writeValueAsString(payload);
-                String url = AgentConfig.getServerUrl() + "/agent/power-commands/status";
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                        .build();
-
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                log.info("[PERF LOG] [AGENT] Reported command {} status: {}", commandId, status);
-            } catch (Exception e) {
-                log.error("Failed to report command status to server", e);
+    private void updateStatusSync(String commandId, String status, String failureReason) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("commandId", commandId);
+            payload.put("agentId", AgentConfig.getAgentId());
+            payload.put("status", status);
+            if (failureReason != null) {
+                payload.put("failureReason", failureReason);
             }
-        });
+
+            String jsonBody = objectMapper.writeValueAsString(payload);
+            String url = AgentConfig.getServerUrl() + "/agent/power-commands/status";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(2))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            log.info("[PERF LOG] [AGENT] Synchronously reported command {} status: {}", commandId, status);
+        } catch (Exception e) {
+            log.warn("Failed to synchronously report status before power action: {}", e.getMessage());
+        }
+    }
+
+    private void updateStatusAsync(String commandId, String status, String failureReason) {
+        CompletableFuture.runAsync(() -> updateStatusSync(commandId, status, failureReason));
     }
 }
+

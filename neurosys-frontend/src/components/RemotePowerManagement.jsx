@@ -58,7 +58,9 @@ const RemotePowerManagement = ({ computer, onStatusUpdate }) => {
       const latencyMs = Math.round(endMs - startMs);
       console.log(`[PERF LOG] [FRONTEND] Backend acknowledged ${action} command in ${latencyMs}ms at ${new Date().toISOString()}`);
 
-      if (res?.success) {
+      const isSuccess = res && (res.success === true || res.id || res.status);
+
+      if (isSuccess) {
         const headlineText = action === 'LOCK'
           ? "Lock command sent."
           : action === 'RESTART'
@@ -78,7 +80,7 @@ const RemotePowerManagement = ({ computer, onStatusUpdate }) => {
           latency: latencyMs
         });
         
-        setLastCommandStatus({ type: action, status: res.data?.status || 'ACKNOWLEDGED' });
+        setLastCommandStatus({ type: action, status: res.status || res.data?.status || 'ACKNOWLEDGED' });
         fetchAudits();
         if (onStatusUpdate) onStatusUpdate();
       } else {

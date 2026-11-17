@@ -105,16 +105,16 @@ export const metricsService = {
   bulkPowerAction: async (labId, action, computerIds) => api.post(`/computers/bulk-power?labId=${labId || ''}&action=${action || 'SHUTDOWN'}`, computerIds || []),
 
   // Remote Power Management APIs
-  lockComputer: async (computerId) => api.post(`/computers/${computerId}/lock`, {}),
-  restartComputer: async (computerId) => api.post(`/computers/${computerId}/restart`, {}),
-  shutdownComputer: async (computerId) => api.post(`/computers/${computerId}/shutdown`, {}),
+  lockComputer: async (computerId) => fetchRealApi(`/computers/${computerId}/lock`, { method: 'POST' }),
+  restartComputer: async (computerId) => fetchRealApi(`/computers/${computerId}/restart`, { method: 'POST' }),
+  shutdownComputer: async (computerId) => fetchRealApi(`/computers/${computerId}/shutdown`, { method: 'POST' }),
   sendPowerCommand: async (computerId, commandType) => {
     const endpoint = (commandType || 'SHUTDOWN').toLowerCase();
-    return api.post(`/computers/${computerId}/${endpoint}`, {});
+    return fetchRealApi(`/computers/${computerId}/${endpoint}`, { method: 'POST' });
   },
   remoteAction: async (computerId, commandType) => {
     const endpoint = (commandType || 'SHUTDOWN').toLowerCase();
-    return api.post(`/computers/${computerId}/${endpoint}`, {});
+    return fetchRealApi(`/computers/${computerId}/${endpoint}`, { method: 'POST' });
   },
   getPowerAudits: async (computerId) => fetchRealApi(`/computers/${computerId}/power-audits`),
 

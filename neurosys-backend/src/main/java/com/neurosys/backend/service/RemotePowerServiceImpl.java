@@ -46,16 +46,16 @@ public class RemotePowerServiceImpl implements RemotePowerService {
 
         log.info("[PERF LOG] [BACKEND] Received {} request for computer {} ({}) at {}", type, computer.getHostname(), computerId, Instant.now());
 
-        // Check for existing active command to prevent rapid duplicate clicks
+        // Check for existing active command of the exact same type to prevent accidental double clicks within 3 seconds
         Optional<RemotePowerCommand> activeCmd = commandRepository
                 .findFirstByComputerIdAndStatusInOrderByCreatedAtDesc(
-                        computerId, List.of(PowerCommandStatus.PENDING, PowerCommandStatus.SENT, PowerCommandStatus.EXECUTING));
+                        computerId, List.of(PowerCommandStatus.PENDING));
 
-        if (activeCmd.isPresent()) {
+        if (activeCmd.isPresent() && activeCmd.get().getCommandType() == type) {
             RemotePowerCommand existing = activeCmd.get();
             long secondsAgo = Duration.between(existing.getCreatedAt(), Instant.now()).getSeconds();
-            if (secondsAgo < 15) {
-                log.info("[PERF LOG] [BACKEND] Duplicate click suppressed — Returning existing active command {} (issued {}s ago)", existing.getId(), secondsAgo);
+            if (secondsAgo < 3) {
+                log.info("[PERF LOG] [BACKEND] Rapid duplicate click ignored for {} on computer {} (issued {}s ago)", type, computer.getHostname(), secondsAgo);
                 return mapToCommandDto(existing);
             }
         }
@@ -91,11 +91,12 @@ public class RemotePowerServiceImpl implements RemotePowerService {
     @Override
     @Transactional
     public RemotePowerCommandDto getPendingCommandForAgent(String agentId) {
-        Optional<RemotePowerCommand> pendingCmd = commandRepository
-                .findFirstByComputerAgentIdAndStatusOrderByCreatedAtAsc(agentId, PowerCommandStatus.PENDING);
+        if (agentId == null || agentId.isBlank()) return null;
 
-        if (pendingCmd.isPresent()) {
-            RemotePowerCommand command = pendingCmd.get();
+        List<RemotePowerCommand> pendingCmds = commandRepository.findPendingCommandsForAgent(agentId, PowerCommandStatus.PENDING);
+
+        if (!pendingCmds.isEmpty()) {
+            RemotePowerCommand command = pendingCmds.get(0);
             command.setStatus(PowerCommandStatus.SENT);
             commandRepository.save(command);
             log.info("[PERF LOG] [BACKEND] Delivered pending {} command {} to agent {} at {}", 

@@ -16,7 +16,7 @@ import java.security.Principal;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping({"/api/v1", "/api"})
 @RequiredArgsConstructor
 @Tag(name = "Remote Power Management Endpoint", description = "REST APIs for Administrator remote Lock, Restart, and Shutdown operations")
 public class RemotePowerController {

@@ -84,9 +84,7 @@ public class MetricsScheduler {
         // 4. Schedule dedicated 500ms fast polling loop for remote power commands (LOCK, RESTART, SHUTDOWN)
         powerCommandExecutor.scheduleAtFixedRate(() -> {
             try {
-                if (isRegistered) {
-                    powerCommandHandler.pollAndExecutePendingCommand();
-                }
+                powerCommandHandler.pollAndExecutePendingCommand();
             } catch (Exception e) {
                 // Catch silently during network polling
             }
