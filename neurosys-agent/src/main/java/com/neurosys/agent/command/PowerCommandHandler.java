@@ -81,8 +81,30 @@ public class PowerCommandHandler {
                 case "LOCK":
                     log.info("[PERF LOG] [AGENT] Executing LOCK workstation at {}", Instant.now());
                     if (isWindows) {
-                        pb = new ProcessBuilder(sys32 + "\\rundll32.exe", "user32.dll,LockWorkStation");
-                        pb.start();
+                        // rundll32.exe user32.dll,LockWorkStation fails silently when the agent runs as the
+                        // SYSTEM service (no interactive desktop session). Instead we create a one-shot
+                        // Windows Scheduled Task that runs as the currently-logged-on interactive user, which
+                        // does have a desktop session and can call LockWorkStation successfully.
+                        String taskName = "NeuroSysLockNow";
+                        // Delete any leftover task first (ignore errors)
+                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Delete", "/TN", taskName, "/F").start().waitFor();
+                        // Create a task that runs once immediately as the interactive user (Session 1)
+                        // The trigger is set to run at a time 1 minute in the past so it fires instantly.
+                        Process createTask = new ProcessBuilder(
+                                sys32 + "\\schtasks.exe",
+                                "/Create", "/F",
+                                "/TN", taskName,
+                                "/SC", "ONCE",
+                                "/ST", "00:00",
+                                "/RU", "INTERACTIVE",
+                                "/TR", "rundll32.exe user32.dll,LockWorkStation",
+                                "/RL", "HIGHEST"
+                        ).start();
+                        createTask.waitFor();
+                        // Run it immediately
+                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Run", "/TN", taskName).start().waitFor();
+                        // Clean up
+                        new ProcessBuilder(sys32 + "\\schtasks.exe", "/Delete", "/TN", taskName, "/F").start();
                     } else {
                         log.warn("Lock workstation is supported natively on Windows systems.");
                     }

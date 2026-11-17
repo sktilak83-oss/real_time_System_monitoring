@@ -63,8 +63,7 @@ public class AlertEngineServiceImpl implements AlertEngineService {
             return triggeredAlerts;
         }
 
-        // Auto-resolve offline alert if computer is active and sending telemetry
-        resolveOfflineAlert(computer);
+        // Offline/Online alerts are disabled - no alert resolution needed here
 
         // Update in-memory sliding telemetry window (keep up to 600 seconds)
         Deque<SystemMetric> window = liveWindowMap.computeIfAbsent(computer.getId(), k -> new ArrayDeque<>());

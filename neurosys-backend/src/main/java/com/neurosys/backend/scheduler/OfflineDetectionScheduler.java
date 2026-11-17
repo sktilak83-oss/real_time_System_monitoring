@@ -93,12 +93,8 @@ public class OfflineDetectionScheduler {
                         webSocketMetricsPublisher.broadcastStatusChange(c, ComputerStatus.OFFLINE, offlineMsg);
                     }
 
-                    // Only fire an ENDPOINT_OFFLINE alert if this was NOT a planned reboot/shutdown
-                    if (!isPlannedReboot) {
-                        alertEngineService.triggerOfflineAlert(c, offlineDurationSeconds);
-                    } else {
-                        log.info("[OFFLINE DETECT] Suppressing ENDPOINT_OFFLINE alert for {} - planned reboot/shutdown.", c.getHostname());
-                    }
+                    // Do NOT fire offline alerts - status changes are shown in the dashboard only.
+                    // Alerts are reserved for genuine hardware/performance issues.
 
                 } else if (offlineDurationSeconds >= warningStateSec) {
                     // Endpoint missed heartbeat for >= warningStateSec -> Mark Warning state
@@ -121,11 +117,7 @@ public class OfflineDetectionScheduler {
                         log.info("[REAL-TIME RESTORE] PC {} ({}) status auto-restored: {} -> ONLINE (last seen {}s ago)",
                                 c.getHostname(), c.getAgentId(), oldStatus, offlineDurationSeconds);
                         webSocketMetricsPublisher.broadcastStatusChange(c, ComputerStatus.ONLINE, "Telemetry heartbeat active");
-                        try {
-                            alertEngineService.resolveOfflineAlert(c);
-                        } catch (Exception e) {
-                            log.warn("Failed resolving offline alert for {}: {}", c.getHostname(), e.getMessage());
-                        }
+                        // No alert resolution needed - we no longer create offline alerts
                     }
                 }
             }
