@@ -43,6 +43,28 @@ public class HeartbeatTrackerService {
     }
 
     @Transactional
+    public void markAgentOffline(String agentId, String reason) {
+        if (agentId == null || agentId.isBlank()) return;
+        Optional<Computer> compOpt = computerRepository.findByAgentId(agentId);
+        if (compOpt.isEmpty()) {
+            compOpt = computerRepository.findByHostnameIgnoreCase(agentId);
+        }
+        if (compOpt.isPresent()) {
+            Computer computer = compOpt.get();
+            lastHeartbeatMap.remove(computer.getId());
+            lastHeartbeatMap.remove(computer.getAgentId());
+            computer.setStatus(ComputerStatus.OFFLINE);
+            computer.setLastCpuUsage(0.0);
+            computer.setLastRamUsage(0.0);
+            computer.setInternetConnected(false);
+            computer.setUpdatedAt(Instant.now());
+            computerRepository.save(computer);
+            log.info("[FAST OFFLINE] PC {} ({}) marked OFFLINE: {}", computer.getHostname(), agentId, reason);
+            webSocketMetricsPublisher.broadcastStatusChange(computer, ComputerStatus.OFFLINE, reason);
+        }
+    }
+
+    @Transactional
     public void processHeartbeat(AgentHeartbeatRequest request) {
         if (request.getAgentId() == null || request.getAgentId().isEmpty()) return;
 

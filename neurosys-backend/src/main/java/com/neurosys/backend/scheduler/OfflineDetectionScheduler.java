@@ -33,7 +33,7 @@ public class OfflineDetectionScheduler {
     private final AlertEngineConfig alertConfig;
     private final RemotePowerCommandRepository remotePowerCommandRepository;
 
-    @Scheduled(fixedRate = 5000) // Runs every 5 seconds to evaluate endpoint heartbeat health
+    @Scheduled(fixedRate = 2000) // Runs every 2 seconds to evaluate endpoint heartbeat health
     @Transactional
     public void detectOfflineComputers() {
         try {

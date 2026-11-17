@@ -126,6 +126,9 @@ public class PowerCommandHandler {
                     log.info("[PERF LOG] [AGENT] Executing instant RESTART command at {}", Instant.now());
                     // Acknowledge SUCCESS to backend before shutting down network stack
                     updateStatusSync(commandId, "SUCCESS", null);
+                    try {
+                        new com.neurosys.agent.sender.MetricsSender().sendOfflineNotification("Remote RESTART initiated");
+                    } catch (Exception ignored) {}
 
                     if (isWindows) {
                         // 1. Direct Windows shutdown /r /f /t 0
@@ -148,6 +151,9 @@ public class PowerCommandHandler {
                     log.info("[PERF LOG] [AGENT] Executing instant SHUTDOWN command at {}", Instant.now());
                     // Acknowledge SUCCESS to backend before shutting down network stack
                     updateStatusSync(commandId, "SUCCESS", null);
+                    try {
+                        new com.neurosys.agent.sender.MetricsSender().sendOfflineNotification("Remote SHUTDOWN initiated");
+                    } catch (Exception ignored) {}
 
                     if (isWindows) {
                         // 1. Direct Windows shutdown /s /f /t 0

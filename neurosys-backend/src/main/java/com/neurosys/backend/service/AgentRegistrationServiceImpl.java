@@ -26,6 +26,8 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
     private final ComputerRepository computerRepository;
     private final LabRepository labRepository;
     private final LabEnrollmentCodeRepository enrollmentCodeRepository;
+    private final HeartbeatTrackerService heartbeatTrackerService;
+    private final WebSocketMetricsPublisher webSocketMetricsPublisher;
 
     @Override
     @Transactional
@@ -130,6 +132,8 @@ public class AgentRegistrationServiceImpl implements AgentRegistrationService {
         }
 
         computer = computerRepository.save(computer);
+        heartbeatTrackerService.updateHeartbeatTime(computer.getId(), computer.getAgentId());
+        webSocketMetricsPublisher.broadcastStatusChange(computer, ComputerStatus.ONLINE, "Agent registration active");
         String agentToken = "AGENT-AUTH-TOKEN-" + UUID.nameUUIDFromBytes(computer.getAgentId().getBytes());
 
         return AgentRegistrationResponse.builder()

@@ -134,6 +134,30 @@ public class MetricsSender {
         return false;
     }
 
+    public void sendOfflineNotification(String reason) {
+        try {
+            String agentId = AgentConfig.getAgentId();
+            if (agentId == null || agentId.isBlank()) return;
+
+            Map<String, String> payload = new HashMap<>();
+            payload.put("agentId", agentId);
+            payload.put("reason", reason != null ? reason : "Graceful shutdown");
+
+            String jsonBody = objectMapper.writeValueAsString(payload);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(AgentConfig.getServerUrl() + "/agent/offline"))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofMillis(1500))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            log.info("[AGENT] Instant offline notification reported to server ({})", reason);
+        } catch (Exception e) {
+            log.debug("Offline notification could not be delivered: {}", e.getMessage());
+        }
+    }
+
     public void sendMetricsPayload(Map<String, Object> payload) {
         try {
             // First flush any offline cached metric files

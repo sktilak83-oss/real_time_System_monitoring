@@ -31,6 +31,8 @@ public class RemotePowerServiceImpl implements RemotePowerService {
     private final RemotePowerCommandRepository commandRepository;
     private final RemotePowerAuditRepository auditRepository;
     private final ComputerRepository computerRepository;
+    private final HeartbeatTrackerService heartbeatTrackerService;
+    private final WebSocketMetricsPublisher webSocketMetricsPublisher;
 
     @Override
     @Transactional
@@ -129,6 +131,33 @@ public class RemotePowerServiceImpl implements RemotePowerService {
                 .timestamp(Instant.now())
                 .build();
         auditRepository.save(audit);
+
+        // Instantly reflect OFFLINE status on computer when SHUTDOWN or RESTART command succeeds
+        if (request.getStatus() == PowerCommandStatus.SUCCESS && command.getComputer() != null) {
+            Computer comp = command.getComputer();
+            if (command.getCommandType() == PowerCommandType.SHUTDOWN) {
+                heartbeatTrackerService.getLastHeartbeatMap().remove(comp.getId());
+                heartbeatTrackerService.getLastHeartbeatMap().remove(comp.getAgentId());
+                comp.setStatus(ComputerStatus.OFFLINE);
+                comp.setLastCpuUsage(0.0);
+                comp.setLastRamUsage(0.0);
+                comp.setInternetConnected(false);
+                comp.setUpdatedAt(Instant.now());
+                computerRepository.save(comp);
+                webSocketMetricsPublisher.broadcastStatusChange(comp, ComputerStatus.OFFLINE, "Remote shutdown executed");
+                log.info("[FAST OFFLINE] PC {} ({}) marked OFFLINE immediately after SHUTDOWN command success", comp.getHostname(), comp.getAgentId());
+            } else if (command.getCommandType() == PowerCommandType.RESTART) {
+                heartbeatTrackerService.getLastHeartbeatMap().remove(comp.getId());
+                heartbeatTrackerService.getLastHeartbeatMap().remove(comp.getAgentId());
+                comp.setStatus(ComputerStatus.OFFLINE);
+                comp.setLastCpuUsage(0.0);
+                comp.setLastRamUsage(0.0);
+                comp.setUpdatedAt(Instant.now());
+                computerRepository.save(comp);
+                webSocketMetricsPublisher.broadcastStatusChange(comp, ComputerStatus.OFFLINE, "Remote restart in progress");
+                log.info("[FAST OFFLINE] PC {} ({}) marked OFFLINE immediately during RESTART command", comp.getHostname(), comp.getAgentId());
+            }
+        }
 
         log.info("[PERF LOG] [BACKEND] Agent reported command {} status updated to {} at {}", command.getId(), request.getStatus(), Instant.now());
         return mapToCommandDto(command);

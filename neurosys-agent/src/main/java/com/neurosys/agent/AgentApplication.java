@@ -27,8 +27,13 @@ public class AgentApplication {
 
         // Register JVM Shutdown Hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("JVM shutdown initiated. Removing system tray icon...");
-            AgentTrayManager.getInstance().removeTrayIcon();
+            log.info("JVM shutdown initiated. Reporting OFFLINE status to server & removing system tray icon...");
+            try {
+                AgentTrayManager.getInstance().removeTrayIcon();
+            } catch (Exception ignored) {}
+            try {
+                new com.neurosys.agent.sender.MetricsSender().sendOfflineNotification("Agent service stopped / System shutdown");
+            } catch (Exception ignored) {}
         }));
 
         // Keep main service thread active
