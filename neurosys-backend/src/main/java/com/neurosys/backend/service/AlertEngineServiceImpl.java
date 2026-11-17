@@ -327,42 +327,13 @@ public class AlertEngineServiceImpl implements AlertEngineService {
     @Override
     @Transactional
     public void triggerOfflineAlert(Computer computer) {
-        long defaultOfflineSec = alertConfig.getOffline().getAlertDurationSeconds();
-        triggerOfflineAlert(computer, defaultOfflineSec);
+        // Disabled: Offline and Online events are status changes shown directly on the dashboard, not alert notifications.
     }
 
     @Override
     @Transactional
     public void triggerOfflineAlert(Computer computer, long offlineDurationSeconds) {
-        if (computer == null) return;
-
-        Instant lastSeen = computer.getLastSeenAt() != null ? computer.getLastSeenAt() : Instant.now().minusSeconds(offlineDurationSeconds);
-        String lastSeenStr = TIME_FORMATTER.format(lastSeen);
-        long minutesOffline = Math.max(1, offlineDurationSeconds / 60);
-
-        List<String> evidence = List.of(
-                String.format("Last heartbeat received: %s.", lastSeenStr),
-                "Last known status: ONLINE",
-                String.format("Offline duration: %d minutes (%d seconds).", minutesOffline, offlineDurationSeconds),
-                String.format("Threshold rule: No heartbeat for >= %d minutes.", alertConfig.getOffline().getAlertDurationSeconds() / 60)
-        );
-
-        List<AlertDto> dummyList = new ArrayList<>();
-        evaluateAlertLifecycle(
-                computer,
-                AlertType.ENDPOINT_OFFLINE,
-                "ENDPOINT",
-                true,
-                false,
-                String.format("%s - Endpoint Offline", computer.getHostname()),
-                String.format("%s missed telemetry heartbeat for %d minutes (last seen %s).", computer.getHostname(), minutesOffline, lastSeenStr),
-                "Check computer power supply, physical network cable, or local agent service state.",
-                evidence,
-                AlertSeverity.WARNING,
-                (double) offlineDurationSeconds,
-                (double) alertConfig.getOffline().getAlertDurationSeconds(),
-                dummyList
-        );
+        // Disabled: Offline and Online events are status changes shown directly on the dashboard, not alert notifications.
     }
 
     @Override
@@ -420,6 +391,11 @@ public class AlertEngineServiceImpl implements AlertEngineService {
             Double thresholdValue,
             List<AlertDto> triggeredAlerts
     ) {
+        // Suppress offline/online alert spam: status changes belong to computers dashboard, not alert notifications
+        if (alertType == AlertType.ENDPOINT_OFFLINE || alertType == AlertType.OFFLINE || alertType == AlertType.TELEMETRY_STALE) {
+            return;
+        }
+
         // Query active incident by computerId + alertType + resourceKey + ACTIVE_STATUSES
         Optional<Alert> activeAlert = alertRepository.findFirstByComputerIdAndAlertTypeAndResourceKeyAndStatusIn(
                 computer.getId(), alertType, resourceKey, ACTIVE_STATUSES
@@ -515,7 +491,9 @@ public class AlertEngineServiceImpl implements AlertEngineService {
     @Override
     @Transactional(readOnly = true)
     public List<AlertDto> getAllAlerts() {
-        return alertRepository.findAll().stream().map(this::mapToDto).toList();
+        return alertRepository.findAll().stream()
+                .filter(a -> a.getAlertType() != AlertType.ENDPOINT_OFFLINE && a.getAlertType() != AlertType.OFFLINE && a.getAlertType() != AlertType.TELEMETRY_STALE)
+                .map(this::mapToDto).toList();
     }
 
     @Override
@@ -525,6 +503,7 @@ public class AlertEngineServiceImpl implements AlertEngineService {
             return getAllAlerts();
         }
         return alertRepository.findAll().stream()
+                .filter(a -> a.getAlertType() != AlertType.ENDPOINT_OFFLINE && a.getAlertType() != AlertType.OFFLINE && a.getAlertType() != AlertType.TELEMETRY_STALE)
                 .filter(a -> a.getComputer() != null && a.getComputer().getLab() != null && labId.equals(a.getComputer().getLab().getId()))
                 .map(this::mapToDto).toList();
     }
@@ -533,7 +512,9 @@ public class AlertEngineServiceImpl implements AlertEngineService {
     @Transactional(readOnly = true)
     public List<AlertDto> getComputerAlerts(String computerId) {
         return alertRepository.findByComputerIdOrderByTriggeredAtDesc(computerId)
-                .stream().map(this::mapToDto).toList();
+                .stream()
+                .filter(a -> a.getAlertType() != AlertType.ENDPOINT_OFFLINE && a.getAlertType() != AlertType.OFFLINE && a.getAlertType() != AlertType.TELEMETRY_STALE)
+                .map(this::mapToDto).toList();
     }
 
     @Override

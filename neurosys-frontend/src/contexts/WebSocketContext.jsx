@@ -71,11 +71,19 @@ export const WebSocketProvider = ({ children }) => {
             }
           });
 
-          // Subscribe to Alerts Topic
+          // Subscribe to Alerts Topic (Filter out offline/online status spam)
           activeClient.subscribe('/topic/alerts', (message) => {
             if (message.body) {
               try {
                 const alert = JSON.parse(message.body);
+                const isOfflineAlert = 
+                  alert.alertType === 'ENDPOINT_OFFLINE' || 
+                  alert.alertType === 'OFFLINE' || 
+                  alert.alertType === 'TELEMETRY_STALE' ||
+                  (alert.title || '').toLowerCase().includes('offline') ||
+                  (alert.title || '').toLowerCase().includes('online');
+                if (isOfflineAlert) return;
+
                 setLatestAlert(alert);
                 setLastUpdateAt(new Date());
                 addNotification({

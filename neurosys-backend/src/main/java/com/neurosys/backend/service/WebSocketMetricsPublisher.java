@@ -77,10 +77,14 @@ public class WebSocketMetricsPublisher {
         // 2. Broadcast to main Dashboard overview channel
         messagingTemplate.convertAndSend("/topic/dashboard", payload);
 
-        // 3. Broadcast alerts if triggered
+        // 3. Broadcast alerts if triggered (filter out offline/online status spam)
         if (newAlerts != null && !newAlerts.isEmpty()) {
             for (AlertDto alert : newAlerts) {
-                messagingTemplate.convertAndSend("/topic/alerts", alert);
+                if (alert.getAlertType() != null &&
+                        !alert.getAlertType().toUpperCase().contains("OFFLINE") &&
+                        !alert.getAlertType().toUpperCase().contains("STALE")) {
+                    messagingTemplate.convertAndSend("/topic/alerts", alert);
+                }
             }
         }
     }

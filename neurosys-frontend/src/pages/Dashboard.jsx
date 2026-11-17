@@ -91,7 +91,14 @@ const Dashboard = () => {
       ]);
 
       const compList = Array.isArray(compData) ? compData : (compData?.data || []);
-      const alertList = Array.isArray(alertData) ? alertData : (alertData?.data || []);
+      const alertList = (Array.isArray(alertData) ? alertData : (alertData?.data || []))
+        .filter(a => 
+          a.alertType !== 'ENDPOINT_OFFLINE' && 
+          a.alertType !== 'OFFLINE' && 
+          a.alertType !== 'TELEMETRY_STALE' &&
+          !(a.title || '').toLowerCase().includes('offline') &&
+          !(a.title || '').toLowerCase().includes('online')
+        );
 
       if (Array.isArray(compList)) {
         setComputers(compList);

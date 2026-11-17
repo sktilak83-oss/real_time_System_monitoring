@@ -59,6 +59,15 @@ const Alerts = () => {
   };
 
   const filteredAlerts = alerts.filter((alert) => {
+    // Suppress offline / online status alerts completely
+    const isOfflineAlert = 
+      alert.alertType === 'ENDPOINT_OFFLINE' || 
+      alert.alertType === 'OFFLINE' || 
+      alert.alertType === 'TELEMETRY_STALE' ||
+      (alert.title || '').toLowerCase().includes('offline') ||
+      (alert.title || '').toLowerCase().includes('online');
+    if (isOfflineAlert) return false;
+
     const q = searchQuery.toLowerCase();
     const matchesSearch = 
       !q ||
