@@ -134,4 +134,5 @@ export const metricsService = {
   getAllDeployments: async () => fetchRealApi('/admin/deployments'),
   getDeploymentsByLab: async (labId) => fetchRealApi(`/admin/deployments/lab/${labId}`),
   retrySoftwareDeployment: async (id) => fetchRealApi(`/admin/deployments/${id}/retry`, { method: 'POST' }),
+  cancelSoftwareDeployment: async (id) => fetchRealApi(`/admin/deployments/${id}/cancel`, { method: 'POST' }),
 };
