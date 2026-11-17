@@ -9,14 +9,15 @@ import oshi.SystemInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -125,7 +126,7 @@ public class DeploymentCommandHandler {
         }
 
         // Step 3: Download installer
-        updateStatusAsync(deploymentId, "DOWNLOADING", "Downloading installer package from " + installerUrl);
+        updateStatusAsync(deploymentId, "DOWNLOADING", "Starting download from " + installerUrl, 0L, null, 0);
         File tempInstaller = null;
         try {
             boolean isMsi = "MSI".equalsIgnoreCase(installerType) || (installerUrl != null && installerUrl.toLowerCase().contains(".msi"));
@@ -143,12 +144,46 @@ public class DeploymentCommandHandler {
             HttpResponse<InputStream> downloadResp = httpClient.send(downloadReq, HttpResponse.BodyHandlers.ofInputStream());
             if (downloadResp.statusCode() != 200) {
                 log.error("Failed to download installer. HTTP status {}", downloadResp.statusCode());
-                updateStatusAsync(deploymentId, "FAILED", "HTTP download failed with status " + downloadResp.statusCode());
+                updateStatusAsync(deploymentId, "FAILED", "HTTP download failed with status " + downloadResp.statusCode(), null, null, null);
                 return;
             }
 
-            try (InputStream in = downloadResp.body()) {
-                Files.copy(in, tempInstaller.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            // Get Content-Length for progress tracking
+            long totalBytes = downloadResp.headers().firstValueAsLong("content-length").orElse(-1L);
+
+            // Chunked download with progress reporting
+            try (InputStream in = new BufferedInputStream(downloadResp.body());
+                 FileOutputStream out = new FileOutputStream(tempInstaller)) {
+
+                byte[] buffer = new byte[32 * 1024]; // 32KB chunks
+                long downloadedBytes = 0;
+                int lastReportedPct = -1;
+                Instant lastReport = Instant.now();
+                int bytesRead;
+
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                    downloadedBytes += bytesRead;
+
+                    int pct = totalBytes > 0 ? (int) ((downloadedBytes * 100L) / totalBytes) : -1;
+                    long secondsSinceReport = Duration.between(lastReport, Instant.now()).getSeconds();
+
+                    // Report every 2 seconds OR every 10% change
+                    if (pct >= 0 && (pct - lastReportedPct >= 10 || secondsSinceReport >= 2)) {
+                        String detail = totalBytes > 0
+                            ? String.format("Downloading... %d%% (%s / %s)", pct, formatBytes(downloadedBytes), formatBytes(totalBytes))
+                            : String.format("Downloading... %s downloaded", formatBytes(downloadedBytes));
+                        updateStatusAsync(deploymentId, "DOWNLOADING", detail, downloadedBytes, totalBytes, pct >= 0 ? pct : null);
+                        lastReportedPct = pct;
+                        lastReport = Instant.now();
+                    }
+                }
+
+                // Final 100% report
+                String doneDetail = totalBytes > 0
+                    ? String.format("Download complete: %s", formatBytes(downloadedBytes))
+                    : String.format("Download complete: %s", formatBytes(downloadedBytes));
+                updateStatusAsync(deploymentId, "DOWNLOADING", doneDetail, downloadedBytes, totalBytes > 0 ? totalBytes : downloadedBytes, 100);
             }
 
             log.info("Downloaded installer to temporary file {} (Size: {} bytes)", tempInstaller.getAbsolutePath(), tempInstaller.length());
@@ -449,11 +484,19 @@ public class DeploymentCommandHandler {
     }
 
     private void updateStatusAsync(String deploymentId, String status, String statusDetail) {
+        updateStatusAsync(deploymentId, status, statusDetail, null, null, null);
+    }
+
+    private void updateStatusAsync(String deploymentId, String status, String statusDetail,
+                                   Long downloadedBytes, Long totalBytes, Integer progressPercent) {
         CompletableFuture.runAsync(() -> {
             try {
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("status", status);
                 payload.put("statusDetail", statusDetail);
+                if (downloadedBytes != null) payload.put("downloadedBytes", downloadedBytes);
+                if (totalBytes != null) payload.put("totalBytes", totalBytes);
+                if (progressPercent != null) payload.put("progressPercent", progressPercent);
 
                 String jsonBody = objectMapper.writeValueAsString(payload);
                 String url = AgentConfig.getServerUrl() + "/agent/deployments/" + deploymentId + "/status?agentId=" + AgentConfig.getAgentId();
@@ -469,5 +512,12 @@ public class DeploymentCommandHandler {
                 log.error("Failed to report deployment status to server", e);
             }
         });
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

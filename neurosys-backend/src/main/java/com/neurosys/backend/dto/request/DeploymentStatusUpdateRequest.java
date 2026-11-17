@@ -17,4 +17,8 @@ public class DeploymentStatusUpdateRequest {
     private DeploymentTargetStatus status;
 
     private String statusDetail;
+
+    private Long downloadedBytes;
+    private Long totalBytes;
+    private Integer progressPercent;
 }

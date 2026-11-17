@@ -23,4 +23,7 @@ public class DeploymentTargetDto {
     private String statusDetail;
     private Instant startedAt;
     private Instant completedAt;
+    private Long downloadedBytes;
+    private Long totalBytes;
+    private Integer progressPercent;
 }

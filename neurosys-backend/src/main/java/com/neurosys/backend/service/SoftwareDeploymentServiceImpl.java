@@ -285,6 +285,11 @@ public class SoftwareDeploymentServiceImpl implements SoftwareDeploymentService 
         target.setStatus(newStatus);
         target.setStatusDetail(request.getStatusDetail());
 
+        // Update download progress fields if provided
+        if (request.getDownloadedBytes() != null) target.setDownloadedBytes(request.getDownloadedBytes());
+        if (request.getTotalBytes() != null) target.setTotalBytes(request.getTotalBytes());
+        if (request.getProgressPercent() != null) target.setProgressPercent(request.getProgressPercent());
+
         if ((newStatus == DeploymentTargetStatus.DOWNLOADING || newStatus == DeploymentTargetStatus.INSTALLING) && target.getStartedAt() == null) {
             target.setStartedAt(Instant.now());
         }
@@ -299,8 +304,7 @@ public class SoftwareDeploymentServiceImpl implements SoftwareDeploymentService 
 
         targetRepository.save(target);
         recalculateDeploymentStatus(target.getDeployment());
-        return mapTargetToDto(target);
-    }
+        return mapTargetToDto(target);    }
 
     private void recalculateDeploymentStatus(SoftwareDeployment dep) {
         List<SoftwareDeploymentTarget> targets = targetRepository.findByDeploymentId(dep.getId());
@@ -406,6 +410,9 @@ public class SoftwareDeploymentServiceImpl implements SoftwareDeploymentService 
                 .statusDetail(target.getStatusDetail())
                 .startedAt(target.getStartedAt())
                 .completedAt(target.getCompletedAt())
+                .downloadedBytes(target.getDownloadedBytes())
+                .totalBytes(target.getTotalBytes())
+                .progressPercent(target.getProgressPercent())
                 .build();
     }
 

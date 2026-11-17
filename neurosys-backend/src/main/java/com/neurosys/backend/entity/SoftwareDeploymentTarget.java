@@ -44,4 +44,13 @@ public class SoftwareDeploymentTarget extends BaseEntity {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @Column(name = "downloaded_bytes")
+    private Long downloadedBytes;
+
+    @Column(name = "total_bytes")
+    private Long totalBytes;
+
+    @Column(name = "progress_percent")
+    private Integer progressPercent;
 }

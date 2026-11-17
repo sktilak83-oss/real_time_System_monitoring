@@ -337,6 +337,13 @@ const SoftwareDeploymentTab = () => {
   const completedDeps = deployments.filter(d => d.status === 'COMPLETED' || d.status === 'PARTIALLY_COMPLETED').length;
   const failedDeps = deployments.filter(d => d.status === 'FAILED' || d.status === 'CANCELLED').length;
 
+  // Compute summary counts
+  const totalDeps = deployments.length;
+  const pendingDeps = deployments.filter(d => d.status === 'PENDING').length;
+  const inProgressDeps = deployments.filter(d => d.status === 'IN_PROGRESS').length;
+  const completedDeps = deployments.filter(d => d.status === 'COMPLETED' || d.status === 'PARTIALLY_COMPLETED').length;
+  const failedDeps = deployments.filter(d => d.status === 'FAILED' || d.status === 'CANCELLED').length;
+
   const handleRetry = async (depId) => {
     try {
       await metricsService.retrySoftwareDeployment(depId);
@@ -349,30 +356,6 @@ const SoftwareDeploymentTab = () => {
 
   return (
     <div className="space-y-6">
-
-      {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="card-elevated p-4 border border-slate-200 rounded-xl flex flex-col items-center gap-1 bg-white">
-          <span className="text-2xl font-extrabold text-slate-900">{totalDeps}</span>
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total</span>
-        </div>
-        <div className="card-elevated p-4 border border-amber-200 rounded-xl flex flex-col items-center gap-1 bg-amber-50">
-          <span className="text-2xl font-extrabold text-amber-700">{pendingDeps}</span>
-          <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Pending</span>
-        </div>
-        <div className="card-elevated p-4 border border-blue-200 rounded-xl flex flex-col items-center gap-1 bg-blue-50">
-          <span className="text-2xl font-extrabold text-blue-700">{inProgressDeps}</span>
-          <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">In Progress</span>
-        </div>
-        <div className="card-elevated p-4 border border-emerald-200 rounded-xl flex flex-col items-center gap-1 bg-emerald-50">
-          <span className="text-2xl font-extrabold text-emerald-700">{completedDeps}</span>
-          <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Completed</span>
-        </div>
-        <div className="card-elevated p-4 border border-red-200 rounded-xl flex flex-col items-center gap-1 bg-red-50">
-          <span className="text-2xl font-extrabold text-red-700">{failedDeps}</span>
-          <span className="text-[11px] font-bold text-red-600 uppercase tracking-wider">Failed</span>
-        </div>
-      </div>
 
       {/* Top Banner Alert / Success Notifications */}
       {successMsg && (
@@ -761,6 +744,14 @@ const SoftwareDeploymentTab = () => {
               ) : (
                 deployments.map(dep => {
                   const pct = dep.totalTargets > 0 ? Math.round((dep.completedTargets / dep.totalTargets) * 100) : 0;
+                  const inProgressTargets = dep.targets?.filter(t => t.status === 'DOWNLOADING' || t.status === 'INSTALLING') || [];
+                  const avgDownloadPct = inProgressTargets.length > 0
+                    ? Math.round(inProgressTargets.reduce((sum, t) => sum + (t.progressPercent || 0), 0) / inProgressTargets.length)
+                    : 0;
+                  const displayPct = dep.status === 'IN_PROGRESS' && pct === 0 ? avgDownloadPct : pct;
+                  const progressDetail = inProgressTargets.length > 0
+                    ? (inProgressTargets[0]?.statusDetail || `${dep.completedTargets}/${dep.totalTargets} Done`)
+                    : `${dep.completedTargets}/${dep.totalTargets} Done`;
 
                   return (
                     <tr key={dep.id} className="hover:bg-slate-50 transition-colors">
@@ -770,18 +761,21 @@ const SoftwareDeploymentTab = () => {
                       </td>
                       <td className="p-3 font-semibold text-slate-800">{dep.labName}</td>
                       <td className="p-3">{getStatusBadge(dep.status)}</td>
-                      <td className="p-3 w-44">
+                      <td className="p-3 w-52">
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px] font-bold text-slate-700">
-                            <span>{dep.completedTargets} / {dep.totalTargets} Done</span>
-                            <span>{pct}%</span>
+                            <span className="truncate max-w-[130px]" title={progressDetail}>{progressDetail}</span>
+                            <span>{displayPct}%</span>
                           </div>
-                          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                          <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
                             <div
-                              className={`h-full transition-all duration-500 ${
-                                dep.status === 'COMPLETED' ? 'bg-emerald-500' : dep.status === 'FAILED' ? 'bg-red-500' : 'bg-primary'
+                              className={`h-full transition-all duration-300 ${
+                                dep.status === 'COMPLETED' ? 'bg-emerald-500'
+                                : dep.status === 'FAILED' ? 'bg-red-500'
+                                : dep.status === 'IN_PROGRESS' ? 'bg-blue-500'
+                                : 'bg-primary'
                               }`}
-                              style={{ width: `${pct}%` }}
+                              style={{ width: `${displayPct}%` }}
                             />
                           </div>
                         </div>
@@ -859,21 +853,51 @@ const SoftwareDeploymentTab = () => {
                     <tr className="bg-slate-100 border-b border-slate-200 text-label-md font-label-md text-slate-900 font-extrabold">
                       <th className="p-3">Computer / Hostname</th>
                       <th className="p-3">IP Address</th>
-                      <th className="p-3">Target Status</th>
-                      <th className="p-3">Status Detail</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Progress</th>
+                      <th className="p-3">Detail</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-xs font-semibold text-slate-800">
-                    {selectedDeployment.targets?.map(t => (
-                      <tr key={t.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-bold text-slate-900">{t.hostname || t.computerName}</td>
-                        <td className="p-3 font-mono text-slate-600">{t.ipAddress || '10.33.199.161'}</td>
-                        <td className="p-3">{getTargetStatusBadge(t.status)}</td>
-                        <td className="p-3 text-slate-600 max-w-xs truncate" title={t.statusDetail}>
-                          {t.statusDetail || 'Pending agent polling'}
-                        </td>
-                      </tr>
-                    ))}
+                    {selectedDeployment.targets?.map(t => {
+                      const tPct = t.progressPercent != null ? t.progressPercent
+                        : (t.status === 'INSTALLED' || t.status === 'ALREADY_INSTALLED') ? 100
+                        : (t.status === 'INSTALLING') ? null
+                        : (t.status === 'DOWNLOADING') ? null
+                        : null;
+                      return (
+                        <tr key={t.id} className="hover:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-900">{t.hostname || t.computerName}</td>
+                          <td className="p-3 font-mono text-slate-600">{t.ipAddress || '-'}</td>
+                          <td className="p-3">{getTargetStatusBadge(t.status)}</td>
+                          <td className="p-3 w-40">
+                            {(t.status === 'DOWNLOADING' || t.status === 'INSTALLING' || t.status === 'INSTALLED' || t.status === 'ALREADY_INSTALLED') ? (
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                                  <span>{t.status === 'DOWNLOADING' ? 'Downloading' : t.status === 'INSTALLING' ? 'Installing' : 'Done'}</span>
+                                  <span>{tPct != null ? `${tPct}%` : '...'}</span>
+                                </div>
+                                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-300 ${
+                                      t.status === 'INSTALLED' || t.status === 'ALREADY_INSTALLED' ? 'bg-emerald-500'
+                                      : t.status === 'INSTALLING' ? 'bg-purple-500'
+                                      : 'bg-blue-500'
+                                    }`}
+                                    style={{ width: `${tPct != null ? tPct : 50}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-600 max-w-xs truncate" title={t.statusDetail}>
+                            {t.statusDetail || 'Pending agent polling'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
