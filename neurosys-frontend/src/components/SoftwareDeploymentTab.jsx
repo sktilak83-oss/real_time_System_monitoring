@@ -330,20 +330,6 @@ const SoftwareDeploymentTab = () => {
   const activePkg = packages.find(p => p.id === selectedPackageId);
   const activeLab = labs?.find(l => l.id === selectedLabId);
 
-  // Compute summary counts
-  const totalDeps = deployments.length;
-  const pendingDeps = deployments.filter(d => d.status === 'PENDING').length;
-  const inProgressDeps = deployments.filter(d => d.status === 'IN_PROGRESS').length;
-  const completedDeps = deployments.filter(d => d.status === 'COMPLETED' || d.status === 'PARTIALLY_COMPLETED').length;
-  const failedDeps = deployments.filter(d => d.status === 'FAILED' || d.status === 'CANCELLED').length;
-
-  // Compute summary counts
-  const totalDeps = deployments.length;
-  const pendingDeps = deployments.filter(d => d.status === 'PENDING').length;
-  const inProgressDeps = deployments.filter(d => d.status === 'IN_PROGRESS').length;
-  const completedDeps = deployments.filter(d => d.status === 'COMPLETED' || d.status === 'PARTIALLY_COMPLETED').length;
-  const failedDeps = deployments.filter(d => d.status === 'FAILED' || d.status === 'CANCELLED').length;
-
   const handleRetry = async (depId) => {
     try {
       await metricsService.retrySoftwareDeployment(depId);
