@@ -128,9 +128,10 @@ public class AgentTrayManager {
         try {
             String url = AgentConfig.getServerUrl();
             if (url != null && url.contains("/api/v1")) {
-                url = url.replace("/api/v1", "/dashboard");
-            } else if (url == null || url.isEmpty() || url.contains("localhost")) {
-                url = "https://realtimesystemmonitoring-production-7322.up.railway.app/dashboard";
+                url = url.replace("/api/v1", "");
+            }
+            if (url == null || url.isEmpty()) {
+                url = "https://realtimesystem-production.up.railway.app";
             }
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(new URI(url));

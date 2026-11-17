@@ -2,8 +2,11 @@ package com.neurosys.backend.scheduler;
 
 import com.neurosys.backend.config.AlertEngineConfig;
 import com.neurosys.backend.entity.Computer;
+import com.neurosys.backend.entity.RemotePowerCommand;
 import com.neurosys.backend.enums.ComputerStatus;
+import com.neurosys.backend.enums.PowerCommandType;
 import com.neurosys.backend.repository.ComputerRepository;
+import com.neurosys.backend.repository.RemotePowerCommandRepository;
 import com.neurosys.backend.service.AlertEngineService;
 import com.neurosys.backend.service.HeartbeatTrackerService;
 import com.neurosys.backend.service.WebSocketMetricsPublisher;
@@ -28,6 +31,7 @@ public class OfflineDetectionScheduler {
     private final HeartbeatTrackerService heartbeatTracker;
     private final WebSocketMetricsPublisher webSocketMetricsPublisher;
     private final AlertEngineConfig alertConfig;
+    private final RemotePowerCommandRepository remotePowerCommandRepository;
 
     @Scheduled(fixedRate = 5000) // Runs every 5 seconds to evaluate endpoint heartbeat health
     @Transactional
@@ -57,11 +61,24 @@ public class OfflineDetectionScheduler {
                 long offlineDurationSeconds = Math.max(0, Duration.between(lastSeen, now).getSeconds());
 
                 if (offlineDurationSeconds >= alertDurationSec) {
-                    // Endpoint has been offline for >= 5 minutes (300s) -> Create/Update ONE active ENDPOINT_OFFLINE incident
+                    // Endpoint offline >= alertDurationSec -> mark OFFLINE
+                    // Suppress alert if a RESTART/SHUTDOWN command was issued within the last 10 minutes (planned reboot)
+                    boolean isPlannedReboot = false;
+                    try {
+                        List<RemotePowerCommand> recentCmds = remotePowerCommandRepository
+                                .findByComputerIdOrderByCreatedAtDesc(c.getId());
+                        Instant tenMinAgo = now.minus(Duration.ofMinutes(10));
+                        isPlannedReboot = recentCmds.stream().anyMatch(cmd ->
+                                (cmd.getCommandType() == PowerCommandType.RESTART
+                                        || cmd.getCommandType() == PowerCommandType.SHUTDOWN)
+                                && cmd.getCreatedAt() != null
+                                && cmd.getCreatedAt().isAfter(tenMinAgo));
+                    } catch (Exception ignored) {}
+
                     if (c.getStatus() != ComputerStatus.OFFLINE) {
                         ComputerStatus oldStatus = c.getStatus();
-                        log.info("[OFFLINE DETECT] PC {} ({}) missed heartbeat (>{}s). Status {} → OFFLINE",
-                                c.getHostname(), c.getAgentId(), alertDurationSec, oldStatus);
+                        log.info("[OFFLINE DETECT] PC {} ({}) missed heartbeat (>{}s). Status {} -> OFFLINE (plannedReboot={})",
+                                c.getHostname(), c.getAgentId(), alertDurationSec, oldStatus, isPlannedReboot);
                         c.setStatus(ComputerStatus.OFFLINE);
                         c.setLastCpuUsage(0.0);
                         c.setLastRamUsage(0.0);
@@ -76,7 +93,13 @@ public class OfflineDetectionScheduler {
                         webSocketMetricsPublisher.broadcastStatusChange(c, ComputerStatus.OFFLINE, offlineMsg);
                     }
 
-                    alertEngineService.triggerOfflineAlert(c, offlineDurationSeconds);
+                    // Only fire an ENDPOINT_OFFLINE alert if this was NOT a planned reboot/shutdown
+                    if (!isPlannedReboot) {
+                        alertEngineService.triggerOfflineAlert(c, offlineDurationSeconds);
+                    } else {
+                        log.info("[OFFLINE DETECT] Suppressing ENDPOINT_OFFLINE alert for {} - planned reboot/shutdown.", c.getHostname());
+                    }
+
                 } else if (offlineDurationSeconds >= warningStateSec) {
                     // Endpoint missed heartbeat for >= warningStateSec -> Mark Warning state
                     if (c.getStatus() == ComputerStatus.ONLINE) {
@@ -88,14 +111,14 @@ public class OfflineDetectionScheduler {
                                 String.format("Telemetry heartbeat delayed (>%ds)", warningStateSec));
                     }
                 } else {
-                    // Endpoint active within 60 seconds -> Restore to ONLINE if in WARNING or OFFLINE state
+                    // Endpoint active within warningStateSec -> Restore to ONLINE if in WARNING or OFFLINE state
                     if (c.getStatus() == ComputerStatus.WARNING || c.getStatus() == ComputerStatus.OFFLINE) {
                         ComputerStatus oldStatus = c.getStatus();
                         c.setStatus(ComputerStatus.ONLINE);
                         c.setUpdatedAt(now);
                         computerRepository.save(c);
 
-                        log.info("[REAL-TIME RESTORE] PC {} ({}) status auto-restored: {} → ONLINE (last seen {}s ago)",
+                        log.info("[REAL-TIME RESTORE] PC {} ({}) status auto-restored: {} -> ONLINE (last seen {}s ago)",
                                 c.getHostname(), c.getAgentId(), oldStatus, offlineDurationSeconds);
                         webSocketMetricsPublisher.broadcastStatusChange(c, ComputerStatus.ONLINE, "Telemetry heartbeat active");
                         try {

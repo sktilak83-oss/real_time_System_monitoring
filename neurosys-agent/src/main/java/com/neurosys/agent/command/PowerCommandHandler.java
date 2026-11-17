@@ -71,12 +71,17 @@ public class PowerCommandHandler {
             boolean isWindows = os.contains("win");
             long startExecMs = System.currentTimeMillis();
 
+            // Use absolute system32 path so commands work when running as SYSTEM
+            String winRoot = System.getenv("SystemRoot");
+            if (winRoot == null || winRoot.isEmpty()) winRoot = "C:\\Windows";
+            String sys32 = winRoot + "\\System32";
+
             ProcessBuilder pb;
             switch (commandType.toUpperCase()) {
                 case "LOCK":
                     log.info("[PERF LOG] [AGENT] Executing LOCK workstation at {}", Instant.now());
                     if (isWindows) {
-                        pb = new ProcessBuilder("rundll32.exe", "user32.dll,LockWorkStation");
+                        pb = new ProcessBuilder(sys32 + "\\rundll32.exe", "user32.dll,LockWorkStation");
                         pb.start();
                     } else {
                         log.warn("Lock workstation is supported natively on Windows systems.");
@@ -88,7 +93,7 @@ public class PowerCommandHandler {
                 case "RESTART":
                     log.info("[PERF LOG] [AGENT] Executing RESTART command (Immediate /t 0) at {}", Instant.now());
                     if (isWindows) {
-                        pb = new ProcessBuilder("shutdown.exe", "/r", "/t", "0", "/f", "/c", "Remote restart requested from NeuroSys Dashboard");
+                        pb = new ProcessBuilder(sys32 + "\\shutdown.exe", "/r", "/t", "0", "/f", "/c", "Remote restart requested from NeuroSys Dashboard");
                         pb.start();
                     }
                     updateStatusAsync(commandId, "SUCCESS", null);
@@ -98,7 +103,7 @@ public class PowerCommandHandler {
                 case "SHUTDOWN":
                     log.info("[PERF LOG] [AGENT] Executing SHUTDOWN command (Immediate /t 0) at {}", Instant.now());
                     if (isWindows) {
-                        pb = new ProcessBuilder("shutdown.exe", "/s", "/t", "0", "/f", "/c", "Remote shutdown requested from NeuroSys Dashboard");
+                        pb = new ProcessBuilder(sys32 + "\\shutdown.exe", "/s", "/t", "0", "/f", "/c", "Remote shutdown requested from NeuroSys Dashboard");
                         pb.start();
                     }
                     updateStatusAsync(commandId, "SUCCESS", null);

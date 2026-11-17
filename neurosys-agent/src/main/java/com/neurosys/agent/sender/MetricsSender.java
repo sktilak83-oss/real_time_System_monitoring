@@ -28,7 +28,7 @@ public class MetricsSender {
 
     public MetricsSender() {
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(3))
                 .build();
         this.objectMapper = new ObjectMapper();
         this.cacheManager = new OfflineCacheManager();
@@ -109,7 +109,7 @@ public class MetricsSender {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(AgentConfig.getServerUrl() + "/agent/heartbeat"))
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(4))
+                    .timeout(Duration.ofSeconds(3))
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                     .build();
 
