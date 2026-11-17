@@ -10,9 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -73,5 +71,14 @@ public class SoftwareDeploymentAdminController {
         String username = (authentication != null && authentication.getName() != null) ? authentication.getName() : "ADMIN";
         DeploymentResponseDto cancelled = deploymentService.cancelDeployment(id, username);
         return ResponseEntity.ok(ApiResponse.success("Deployment cancelled successfully", cancelled));
+    }
+
+    @PostMapping("/{id}/retry")
+    public ResponseEntity<ApiResponse<DeploymentResponseDto>> retryDeployment(
+            @PathVariable String id,
+            Authentication authentication) {
+        String username = (authentication != null && authentication.getName() != null) ? authentication.getName() : "ADMIN";
+        DeploymentResponseDto dto = deploymentService.retryDeployment(id, username);
+        return ResponseEntity.ok(ApiResponse.success("Deployment retried successfully", dto));
     }
 }

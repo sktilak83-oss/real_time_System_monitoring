@@ -280,42 +280,36 @@ public class SoftwareDeploymentServiceImpl implements SoftwareDeploymentService 
         return mapTargetToDto(target);
     }
 
-    private void recalculateDeploymentStatus(SoftwareDeployment dep) {
-        List<SoftwareDeploymentTarget> targets = targetRepository.findByDeploymentId(dep.getId());
-        if (targets.isEmpty()) return;
 
-        boolean anyInProgress = false;
-        boolean anyPending = false;
-        int completedCount = 0;
-        int failedOrCancelledCount = 0;
+    @Override
+    @Transactional
+    public DeploymentResponseDto retryDeployment(String id, String username) {
+        SoftwareDeployment dep = deploymentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("SoftwareDeployment", "id", id));
 
-        for (SoftwareDeploymentTarget t : targets) {
-            DeploymentTargetStatus s = t.getStatus();
-            if (s == DeploymentTargetStatus.DOWNLOADING || s == DeploymentTargetStatus.INSTALLING) {
-                anyInProgress = true;
-            } else if (s == DeploymentTargetStatus.PENDING) {
-                anyPending = true;
-            } else if (s == DeploymentTargetStatus.INSTALLED || s == DeploymentTargetStatus.ALREADY_INSTALLED) {
-                completedCount++;
-            } else if (s == DeploymentTargetStatus.FAILED || s == DeploymentTargetStatus.CANCELLED || s == DeploymentTargetStatus.OFFLINE) {
-                failedOrCancelledCount++;
+        // Reset failed, cancelled, or offline targets to PENDING
+        for (SoftwareDeploymentTarget target : dep.getTargets()) {
+            DeploymentTargetStatus status = target.getStatus();
+            if (status == DeploymentTargetStatus.FAILED ||
+                    status == DeploymentTargetStatus.CANCELLED ||
+                    status == DeploymentTargetStatus.OFFLINE) {
+                target.setStatus(DeploymentTargetStatus.PENDING);
+                target.setStatusDetail("Retry initiated by admin " + username);
+                target.setStartedAt(null);
+                target.setCompletedAt(null);
             }
         }
 
-        int total = targets.size();
-        if (completedCount == total) {
-            dep.setStatus(DeploymentTaskStatus.COMPLETED);
-        } else if (failedOrCancelledCount == total) {
-            dep.setStatus(DeploymentTaskStatus.FAILED);
-        } else if (anyInProgress) {
-            dep.setStatus(DeploymentTaskStatus.IN_PROGRESS);
-        } else if (!anyPending && (completedCount > 0 || failedOrCancelledCount > 0)) {
-            dep.setStatus(DeploymentTaskStatus.PARTIALLY_COMPLETED);
-        } else if (anyPending) {
-            dep.setStatus(DeploymentTaskStatus.PENDING); // Stays PENDING until agent actually starts working
-        }
+        // Extend expiration time (e.g., another 24 hours)
+        dep.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+
+        // Recalculate overall deployment status based on updated targets
+        recalculateDeploymentStatus(dep);
 
         deploymentRepository.save(dep);
+        log.info("Software Deployment [{}] retried by {}", dep.getDeploymentNumber(), username);
+        return mapDeploymentToDto(dep);
+    }
     }
 
     @Scheduled(cron = "0 */10 * * * *") // Run every 10 minutes

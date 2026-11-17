@@ -26,4 +26,7 @@ public interface SoftwareDeploymentService {
     
     // Scheduled tasks
     void checkAndExpireDeployments();
+
+    // Retry failed deployment
+    DeploymentResponseDto retryDeployment(String id, String username);
 }
