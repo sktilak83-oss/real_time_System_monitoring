@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import AIAssistantWidget from './AIAssistantWidget';
 
 const Layout = () => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -16,7 +15,6 @@ const Layout = () => {
           <Outlet />
         </main>
       </div>
-      <AIAssistantWidget />
     </div>
   );
 };
