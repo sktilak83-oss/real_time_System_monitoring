@@ -90,6 +90,8 @@ public class SoftwareCollector {
     private String cleanRegistrySoftwareName(String raw) {
         if (raw == null) return "";
         String lower = raw.toLowerCase();
+        if (lower.contains("zoom")) return "Zoom";
+        if (lower.contains("steam")) return "Steam";
         if (lower.contains("python")) return "Python";
         if (lower.contains("dev-c++") || lower.contains("dev c++") || lower.contains("devc++")) return "Dev-C++";
         if (lower.contains("openjdk") || lower.contains("java") || lower.contains("jdk") || lower.contains("jre")) return "Java";

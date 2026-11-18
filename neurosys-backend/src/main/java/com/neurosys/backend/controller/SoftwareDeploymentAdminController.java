@@ -17,7 +17,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping({"/api/v1/admin/deployments", "/api/admin/deployments"})
+@RequestMapping({"/api/v1/admin/deployments", "/api/admin/deployments", "/api/v1/deployments", "/api/deployments"})
 @RequiredArgsConstructor
 public class SoftwareDeploymentAdminController {
 

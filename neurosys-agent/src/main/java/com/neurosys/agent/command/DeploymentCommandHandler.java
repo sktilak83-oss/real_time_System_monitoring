@@ -295,22 +295,22 @@ public class DeploymentCommandHandler {
             boolean nowPresent = softwareCollector.collectInstalledSoftware().stream().anyMatch(item -> {
                 String name = item.get("name");
                 return name != null && isNameMatch(name, cleanAppName);
-            });
+            }) || isAppInstalledOnDisk(cleanAppName);
 
-            log.info("Post-install verification for '{}' (Clean: '{}'): found in software inventory = {}, exit code = {}",
+            log.info("Post-install verification for '{}' (Clean: '{}'): found on system = {}, exit code = {}",
                     packageName, cleanAppName, nowPresent, exitCode);
 
             // If the application is verified present on the system, it's successful regardless of exit code!
             if (nowPresent) {
-                updateStatusAsync(deploymentId, "INSTALLED", "Software " + cleanAppName + " installed and verified in inventory (Exit Code: " + exitCode + ")");
+                updateStatusAsync(deploymentId, "INSTALLED", "Software " + cleanAppName + " installed and verified on system (Exit Code: " + exitCode + ")");
                 log.info("Deployment [{}] for package '{}' completed successfully (verified present)!", deploymentNumber, packageName);
             } else if (exitCode == 0 || exitCode == 3010 || exitCode == 1641) {
                 // Common Windows installer success codes
                 updateStatusAsync(deploymentId, "INSTALLED", "Software installed successfully (Exit Code: " + exitCode + ")");
                 log.info("Deployment [{}] for package '{}' completed successfully (Exit Code: {})", deploymentNumber, packageName, exitCode);
-            } else if (exitCode == 1638) {
+            } else if (exitCode == 1638 || (exitCode == 1603 && (alreadyInstalled || isAppInstalledOnDisk(cleanAppName)))) {
                 updateStatusAsync(deploymentId, "ALREADY_INSTALLED", "Application " + cleanAppName + " is already installed on target machine");
-                log.info("Deployment [{}] for package '{}' marked as ALREADY_INSTALLED (code 1638)", deploymentNumber, packageName);
+                log.info("Deployment [{}] for package '{}' marked as ALREADY_INSTALLED", deploymentNumber, packageName);
             } else {
                 updateStatusAsync(deploymentId, "FAILED", "Installer exited with code " + exitCode + " (Application not found in software inventory)");
                 log.warn("Deployment [{}] for package '{}' failed with exit code {}", deploymentNumber, packageName, exitCode);
@@ -502,7 +502,13 @@ public class DeploymentCommandHandler {
         // Exact match
         if (a.equals(b)) return true;
 
+        // Bidirectional containment & prefix matching (e.g. "Zoom" matches "Zoom Meetings", "VLC" matches "VLC Media Player")
+        if (a.contains(b) || b.contains(a)) return true;
+        if (a.startsWith(b) || b.startsWith(a)) return true;
+
         // Common software name aliases
+        if (a.contains("zoom") && b.contains("zoom")) return true;
+        if (a.contains("steam") && b.contains("steam")) return true;
         if ((b.equals("node") || b.equals("nodejs")) && (a.equals("node.js") || a.startsWith("node.js") || a.contains("node.js"))) return true;
         if (b.equals("minecraft") && a.contains("minecraft")) return true;
         if (b.equals("vlc") && (a.contains("vlc") || a.contains("videolan"))) return true;
@@ -513,11 +519,47 @@ public class DeploymentCommandHandler {
         if (b.equals("python") && a.startsWith("python")) return true;
         if ((b.equals("7zip") || b.equals("7-zip") || b.equals("7z")) && a.contains("7-zip")) return true;
 
-        // Word boundary match if targetName is at least 4 letters
-        if (b.length() >= 4 && (a.startsWith(b) || a.matches(".*\\b" + Pattern.quote(b) + "\\b.*"))) {
+        // First word match if first word is at least 3 letters (e.g. "Zoom" matches "Zoom Meetings")
+        String[] aWords = a.split("\\s+");
+        String[] bWords = b.split("\\s+");
+        if (aWords.length > 0 && bWords.length > 0 && aWords[0].length() >= 3 && aWords[0].equals(bWords[0])) {
             return true;
         }
 
+        // Word boundary match if targetName is at least 3 letters
+        if (b.length() >= 3 && (a.startsWith(b) || a.matches(".*\\b" + Pattern.quote(b) + "\\b.*"))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isAppInstalledOnDisk(String appName) {
+        if (appName == null || appName.isBlank()) return false;
+        String lower = appName.toLowerCase().trim();
+        String progFiles = System.getenv("ProgramFiles");
+        String progFilesX86 = System.getenv("ProgramFiles(x86)");
+        String localAppData = System.getenv("LOCALAPPDATA");
+        String appData = System.getenv("APPDATA");
+
+        String[] dirs = { progFiles, progFilesX86, localAppData, appData };
+        for (String dir : dirs) {
+            if (dir == null || dir.isBlank()) continue;
+            try {
+                File d = new File(dir);
+                if (!d.exists() || !d.isDirectory()) continue;
+                File[] subdirs = d.listFiles();
+                if (subdirs == null) continue;
+                for (File sub : subdirs) {
+                    if (sub.isDirectory()) {
+                        String subLower = sub.getName().toLowerCase();
+                        if (subLower.contains(lower) || lower.contains(subLower)) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
         return false;
     }
 
