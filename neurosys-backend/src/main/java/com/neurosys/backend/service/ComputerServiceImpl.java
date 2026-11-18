@@ -6,25 +6,38 @@ import com.neurosys.backend.entity.HealthScore;
 import com.neurosys.backend.entity.SystemMetric;
 import com.neurosys.backend.enums.ComputerStatus;
 import com.neurosys.backend.exception.ResourceNotFoundException;
-import com.neurosys.backend.repository.ComputerRepository;
-import com.neurosys.backend.repository.HealthScoreRepository;
-import com.neurosys.backend.repository.SystemMetricRepository;
+import com.neurosys.backend.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import com.neurosys.backend.dto.response.SystemMetricDto;
 import com.neurosys.backend.dto.response.HealthScoreDto;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ComputerServiceImpl implements ComputerService {
 
     private final ComputerRepository computerRepository;
     private final SystemMetricRepository systemMetricRepository;
+    private final SystemLogRepository systemLogRepository;
+    private final AlertRepository alertRepository;
+    private final DiagnosticEventRepository diagnosticEventRepository;
+    private final DiagnosticIncidentRepository diagnosticIncidentRepository;
+    private final HealthScoreRepository healthScoreRepository;
+    private final PredictionRepository predictionRepository;
+    private final RemotePowerCommandRepository remotePowerCommandRepository;
+    private final SoftwareDeploymentTargetRepository softwareDeploymentTargetRepository;
+    private final SoftwareInventoryRepository softwareInventoryRepository;
+    private final RemotePowerAuditRepository remotePowerAuditRepository;
+    private final HeartbeatTrackerService heartbeatTrackerService;
+    private final WebSocketMetricsPublisher webSocketMetricsPublisher;
     private final HealthScoreEngine healthScoreEngine;
     private final SystemMetricsService systemMetricsService;
 
@@ -112,6 +125,59 @@ public class ComputerServiceImpl implements ComputerService {
         return computerRepository.findByAgentId(agentId)
                 .map(c -> c.getStatus().name())
                 .orElse("NOT_REGISTERED");
+    }
+
+    @Override
+    @Transactional
+    public void deleteComputer(String identifier) {
+        if (identifier == null || identifier.isBlank()) return;
+
+        Optional<Computer> compOpt = computerRepository.findById(identifier);
+        if (compOpt.isEmpty()) {
+            compOpt = computerRepository.findByHostnameIgnoreCase(identifier);
+        }
+        if (compOpt.isEmpty()) {
+            compOpt = computerRepository.findByAgentId(identifier);
+        }
+        if (compOpt.isEmpty()) {
+            compOpt = computerRepository.findAll().stream()
+                    .filter(c -> (c.getComputerName() != null && c.getComputerName().equalsIgnoreCase(identifier))
+                            || (c.getHostname() != null && c.getHostname().equalsIgnoreCase(identifier)))
+                    .findFirst();
+        }
+
+        if (compOpt.isEmpty()) {
+            log.warn("Computer {} not found for deletion. Skipping.", identifier);
+            return;
+        }
+
+        Computer computer = compOpt.get();
+        String compId = computer.getId();
+        log.info("[DELETE COMPUTER] Cascading deletion for computer {} (ID: {}, AgentID: {})...", 
+                computer.getHostname(), compId, computer.getAgentId());
+
+        try { systemMetricRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting metrics: {}", e.getMessage()); }
+        try { systemLogRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting logs: {}", e.getMessage()); }
+        try { alertRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting alerts: {}", e.getMessage()); }
+        try { diagnosticEventRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting diagnostic events: {}", e.getMessage()); }
+        try { diagnosticIncidentRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting diagnostic incidents: {}", e.getMessage()); }
+        try { healthScoreRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting health scores: {}", e.getMessage()); }
+        try { predictionRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting predictions: {}", e.getMessage()); }
+        try { remotePowerCommandRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting power commands: {}", e.getMessage()); }
+        try { softwareDeploymentTargetRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting deployment targets: {}", e.getMessage()); }
+        try { softwareInventoryRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting software inventory: {}", e.getMessage()); }
+        try { remotePowerAuditRepository.deleteByComputerId(compId); } catch (Exception e) { log.warn("Error deleting power audits: {}", e.getMessage()); }
+
+        heartbeatTrackerService.getLastHeartbeatMap().remove(compId);
+        if (computer.getAgentId() != null) {
+            heartbeatTrackerService.getLastHeartbeatMap().remove(computer.getAgentId());
+        }
+
+        computerRepository.delete(computer);
+        cachedApprovedComputers = null;
+
+        webSocketMetricsPublisher.broadcastStatusChange(computer, ComputerStatus.OFFLINE, "DELETED");
+        log.info("[DELETE COMPUTER] Computer {} and all associated data permanently deleted.", computer.getHostname());
     }
 
     private ComputerDto mapToDto(Computer computer) {

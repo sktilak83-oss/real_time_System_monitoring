@@ -21,4 +21,8 @@ public interface DiagnosticEventRepository extends JpaRepository<DiagnosticEvent
     @Modifying
     @Query("DELETE FROM DiagnosticEvent de WHERE de.occurredAt < :cutoff")
     int deleteEventsOlderThan(@Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("DELETE FROM DiagnosticEvent de WHERE de.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }

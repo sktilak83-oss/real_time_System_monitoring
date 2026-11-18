@@ -17,7 +17,8 @@ import {
   RefreshCw,
   X,
   Monitor,
-  CheckCircle2
+  CheckCircle2,
+  Trash2
 } from 'lucide-react';
 
 const formatLastSeen = (timestamp) => {
@@ -66,7 +67,27 @@ const Computers = () => {
   // Selection & Power Modal State
   const [selectedIds, setSelectedIds] = useState([]);
   const [powerModal, setPowerModal] = useState({ open: false, action: null, targetCount: 0, targetIds: [] });
+  const [deleteModal, setDeleteModal] = useState({ open: false, id: null, hostname: '' });
   const [actionStatusMsg, setActionStatusMsg] = useState('');
+
+  const handleDeleteComputer = (id, hostname) => {
+    setDeleteModal({ open: true, id, hostname });
+  };
+
+  const confirmDeleteComputer = async () => {
+    if (!deleteModal.id) return;
+    try {
+      await metricsService.deleteComputer(deleteModal.id);
+      setComputers((prev) => prev.filter((c) => c.id !== deleteModal.id));
+      setActionStatusMsg(`✓ Workstation ${deleteModal.hostname} deleted successfully.`);
+      setTimeout(() => setActionStatusMsg(''), 4000);
+    } catch (err) {
+      console.error('Failed to delete computer', err);
+      setActionStatusMsg(`Failed to delete computer: ${err.message || 'Error'}`);
+    } finally {
+      setDeleteModal({ open: false, id: null, hostname: '' });
+    }
+  };
 
   useEffect(() => {
     fetchComputers();
@@ -463,6 +484,13 @@ const Computers = () => {
                           >
                             View Details
                           </button>
+                          <button
+                            onClick={() => handleDeleteComputer(comp.id, comp.hostname || comp.computerName)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 transition-colors cursor-pointer ml-0.5"
+                            title="Delete Computer from Dashboard"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -519,6 +547,38 @@ const Computers = () => {
                 className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer shadow-sm"
               >
                 Send {powerModal.action} Command
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal.open && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="text-headline-md font-bold text-slate-900">Delete Workstation</h3>
+            </div>
+            <p className="text-body-md text-slate-700">
+              Are you sure you want to permanently delete <strong className="text-slate-900 font-extrabold">{deleteModal.hostname}</strong> and all associated historical telemetry, metrics, and alerts?
+            </p>
+            <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200 font-medium">
+              ⚠️ This will remove the workstation completely from the dashboard. If the agent is restarted on that machine, it will re-register fresh.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setDeleteModal({ open: false, id: null, hostname: '' })}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-800 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDeleteComputer}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer shadow-sm"
+              >
+                Delete Workstation
               </button>
             </div>
           </div>

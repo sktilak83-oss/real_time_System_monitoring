@@ -21,5 +21,9 @@ public interface RemotePowerCommandRepository extends JpaRepository<RemotePowerC
     Optional<RemotePowerCommand> findFirstByComputerIdAndStatusInOrderByCreatedAtDesc(String computerId, List<PowerCommandStatus> statuses);
 
     List<RemotePowerCommand> findByComputerIdOrderByCreatedAtDesc(String computerId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM RemotePowerCommand c WHERE c.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }
 

@@ -24,4 +24,8 @@ public interface SystemLogRepository extends JpaRepository<SystemLog, String> {
     @Modifying
     @Query("DELETE FROM SystemLog sl WHERE sl.timestamp < :cutoff")
     int deleteLogsOlderThan(@Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("DELETE FROM SystemLog sl WHERE sl.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }

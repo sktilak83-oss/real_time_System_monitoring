@@ -30,6 +30,7 @@ public class DataInitializer implements CommandLineRunner {
     private final LabRepository labRepository;
     private final SoftwarePackageRepository softwarePackageRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.neurosys.backend.service.ComputerService computerService;
 
     @Override
     public void run(String... args) throws Exception {
@@ -84,13 +85,14 @@ public class DataInitializer implements CommandLineRunner {
                     .build());
         });
 
-        // 3. Clean up old mock sample computers
+        // 3. Clean up IDH21N42 and old mock sample computers
         computerRepository.findAll().stream()
-                .filter(c -> c.getHostname().startsWith("LAB-ALPHA") || c.getHostname().startsWith("LAB-BETA"))
+                .filter(c -> (c.getHostname() != null && (c.getHostname().equalsIgnoreCase("IDH21N42") || c.getHostname().startsWith("LAB-ALPHA") || c.getHostname().startsWith("LAB-BETA")))
+                        || (c.getComputerName() != null && c.getComputerName().toUpperCase().contains("IDH21N42"))
+                        || (c.getAgentId() != null && c.getAgentId().equalsIgnoreCase("IDH21N42")))
                 .forEach(c -> {
-                    log.info("Cleaning up legacy sample computer {} and its inventory...", c.getHostname());
-                    softwareInventoryRepository.deleteByComputerId(c.getId());
-                    computerRepository.delete(c);
+                    log.info("Cleaning up computer {} ({}) and all related data...", c.getHostname(), c.getId());
+                    computerService.deleteComputer(c.getId());
                 });
 
         // 4. Ensure Primary Admin Computer (LAPTOP-PALBUQS2) exists in DB

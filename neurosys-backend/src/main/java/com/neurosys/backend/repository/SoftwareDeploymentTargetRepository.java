@@ -29,4 +29,8 @@ public interface SoftwareDeploymentTargetRepository extends JpaRepository<Softwa
 
     @Query("SELECT t FROM SoftwareDeploymentTarget t WHERE t.status IN :statuses AND t.startedAt < :threshold")
     List<SoftwareDeploymentTarget> findStaleActiveTargets(@Param("statuses") Collection<DeploymentTargetStatus> statuses, @Param("threshold") Instant threshold);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM SoftwareDeploymentTarget t WHERE t.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }

@@ -14,4 +14,5 @@ public interface ComputerService {
     ComputerDto approveComputer(String computerId);
     ComputerDto rejectComputer(String computerId);
     String getAgentStatus(String agentId);
+    void deleteComputer(String identifier);
 }

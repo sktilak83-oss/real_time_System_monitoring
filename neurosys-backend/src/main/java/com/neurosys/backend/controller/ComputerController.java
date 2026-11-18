@@ -62,4 +62,11 @@ public class ComputerController {
         ComputerDto rejected = computerService.rejectComputer(id);
         return ResponseEntity.ok(ApiResponse.success("Computer endpoint rejected successfully", rejected));
     }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete Computer Endpoint", description = "Permanently delete a computer endpoint and all associated telemetry, alerts, and deployment records")
+    public ResponseEntity<ApiResponse<String>> deleteComputer(@PathVariable String id) {
+        computerService.deleteComputer(id);
+        return ResponseEntity.ok(ApiResponse.success("Computer and all associated data deleted successfully", id));
+    }
 }

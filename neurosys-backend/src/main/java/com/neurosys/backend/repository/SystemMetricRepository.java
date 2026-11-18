@@ -41,4 +41,8 @@ public interface SystemMetricRepository extends JpaRepository<SystemMetric, Long
     @Modifying
     @Query("DELETE FROM SystemMetric sm WHERE sm.recordedAt < :cutoff")
     int deleteMetricsOlderThan(@Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("DELETE FROM SystemMetric sm WHERE sm.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }

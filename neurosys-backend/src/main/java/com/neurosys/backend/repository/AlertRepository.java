@@ -13,6 +13,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 @Repository
 public interface AlertRepository extends JpaRepository<Alert, String> {
     List<Alert> findByComputerIdOrderByTriggeredAtDesc(String computerId);
@@ -25,4 +29,8 @@ public interface AlertRepository extends JpaRepository<Alert, String> {
     Optional<Alert> findFirstByComputerIdAndAlertTypeAndResourceKeyAndStatusIn(String computerId, AlertType alertType, String resourceKey, List<AlertStatus> statuses);
     boolean existsByComputerIdAndAlertTypeAndStatusAndResolvedAtAfter(String computerId, AlertType alertType, AlertStatus status, Instant after);
     boolean existsByComputerIdAndAlertTypeAndResourceKeyAndStatusAndResolvedAtAfter(String computerId, AlertType alertType, String resourceKey, AlertStatus status, Instant after);
+
+    @Modifying
+    @Query("DELETE FROM Alert a WHERE a.computer.id = :computerId")
+    void deleteByComputerId(@Param("computerId") String computerId);
 }
