@@ -101,6 +101,9 @@ public class DeploymentCommandHandler {
         log.info("Processing deployment task [{}] for package '{}' [Clean Name: '{}'] (Version: {})",
                 deploymentNumber, packageName, cleanAppName, packageVersion);
 
+        // Immediate acknowledgment: transition out of PENDING so dashboard updates instantly
+        updateStatusAsync(deploymentId, "DOWNLOADING", "Starting package preparation and download...", 0L, null, 0);
+
         // Step 1: Check if already installed
         List<Map<String, String>> installedList = softwareCollector.collectInstalledSoftware();
         boolean alreadyInstalled = installedList.stream().anyMatch(item -> {
@@ -229,6 +232,7 @@ public class DeploymentCommandHandler {
                     command.add(tempInstaller.getAbsolutePath());
                     command.add("/qn");
                     command.add("/norestart");
+                    command.add("ALLUSERS=1");
                 } else {
                     command.add(tempInstaller.getAbsolutePath());
                     if (!finalArgs.isBlank()) {
@@ -255,17 +259,17 @@ public class DeploymentCommandHandler {
                 log.warn("Direct execution failed ({}), falling back to PowerShell Start-Process", e.getMessage());
             }
 
-            // Method 2: If direct execution failed or requested elevation (error 740), use PowerShell
-            if (!executed || exitCode == 740) {
+            // Method 2: If direct execution failed, requested elevation (error 740), or hit MSI fatal error (1603/1625)
+            if (!executed || exitCode == 740 || exitCode == 1603 || exitCode == 1625) {
                 try {
-                    log.info("Launching installer via PowerShell Start-Process for elevation handling...");
+                    log.info("Launching installer via PowerShell Start-Process with elevation handling (prior exit code: {})...", exitCode);
                     String psCmd;
                     if (isMsi) {
                         psCmd = "$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i `\"" +
-                                tempInstaller.getAbsolutePath() + "`\" /qn /norestart' -Wait -PassThru; exit $p.ExitCode";
+                                tempInstaller.getAbsolutePath() + "`\" /qn /norestart ALLUSERS=1' -Verb RunAs -Wait -PassThru; exit $p.ExitCode";
                     } else {
                         psCmd = "$p = Start-Process -FilePath '\"" + tempInstaller.getAbsolutePath() +
-                                "\"' -ArgumentList '\"" + finalArgs + "\"' -Wait -PassThru; exit $p.ExitCode";
+                                "\"' -ArgumentList '\"" + finalArgs + "\"' -Verb RunAs -Wait -PassThru; exit $p.ExitCode";
                     }
                     ProcessBuilder psPb = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psCmd);
                     psPb.redirectErrorStream(true);
@@ -278,13 +282,35 @@ public class DeploymentCommandHandler {
                     if (finished) {
                         exitCode = psProc.exitValue();
                         executed = true;
-                        log.info("PowerShell installer execution finished with exit code {}", exitCode);
+                        log.info("PowerShell elevated installer execution finished with exit code {}", exitCode);
                     } else {
                         psProc.destroyForcibly();
-                        log.error("PowerShell installer execution timed out after 5 minutes");
+                        log.error("PowerShell elevated installer execution timed out after 5 minutes");
                     }
                 } catch (Exception e2) {
                     log.error("PowerShell elevated execution failed: {}", e2.getMessage());
+                }
+
+                // Method 3: For MSI, if still 1603 or 1625 (non-admin environment), attempt Per-User install fallback
+                if (isMsi && (exitCode == 1603 || exitCode == 1625)) {
+                    try {
+                        log.info("Machine-wide install returned {}. Attempting per-user MSI installation fallback...", exitCode);
+                        String perUserCmd = "$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i `\"" +
+                                tempInstaller.getAbsolutePath() + "`\" /qn /norestart ALLUSERS=2 MSIINSTALLPERUSER=1' -Wait -PassThru; exit $p.ExitCode";
+                        ProcessBuilder perUserPb = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", perUserCmd);
+                        perUserPb.redirectErrorStream(true);
+                        Process perUserProc = perUserPb.start();
+                        boolean perUserDone = perUserProc.waitFor(5, TimeUnit.MINUTES);
+                        if (perUserDone) {
+                            int perUserExit = perUserProc.exitValue();
+                            log.info("Per-user MSI installer execution finished with exit code {}", perUserExit);
+                            if (perUserExit == 0 || perUserExit == 3010) {
+                                exitCode = perUserExit;
+                            }
+                        }
+                    } catch (Exception e3) {
+                        log.warn("Per-user MSI fallback failed: {}", e3.getMessage());
+                    }
                 }
             }
 
@@ -312,8 +338,16 @@ public class DeploymentCommandHandler {
                 updateStatusAsync(deploymentId, "ALREADY_INSTALLED", "Application " + cleanAppName + " is already installed on target machine");
                 log.info("Deployment [{}] for package '{}' marked as ALREADY_INSTALLED", deploymentNumber, packageName);
             } else {
-                updateStatusAsync(deploymentId, "FAILED", "Installer exited with code " + exitCode + " (Application not found in software inventory)");
-                log.warn("Deployment [{}] for package '{}' failed with exit code {}", deploymentNumber, packageName, exitCode);
+                String failureReason;
+                if (exitCode == 1603) {
+                    failureReason = "Installer exited with code 1603 (Administrator privileges required to install to Program Files, or conflicting version exists). Please start agent as Administrator.";
+                } else if (exitCode == 740) {
+                    failureReason = "Installer exited with code 740 (Elevation required). Please start agent as Administrator.";
+                } else {
+                    failureReason = "Installer exited with code " + exitCode + " (Application not found in software inventory)";
+                }
+                updateStatusAsync(deploymentId, "FAILED", failureReason);
+                log.warn("Deployment [{}] for package '{}' failed with exit code {}: {}", deploymentNumber, packageName, exitCode, failureReason);
             }
 
             // Always trigger fresh software inventory scan and update backend

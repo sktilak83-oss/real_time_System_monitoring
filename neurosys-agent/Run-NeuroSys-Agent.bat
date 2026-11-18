@@ -1,6 +1,14 @@
 @echo off
 title NeuroSys Cloud Monitoring Agent Daemon
 cd /d "%~dp0"
+
+:: Check Administrator Privileges & Auto-Elevate
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process '%~f0' -Verb RunAs" >nul 2>&1
+    if %errorlevel% equ 0 exit /b
+)
+
 if exist "%~dp0cache\stopped.flag" del /f /q "%~dp0cache\stopped.flag" >nul 2>&1
 set "NEUROSYS_SERVER_URL=https://realtimesystemmonitoring-production-ca12724a.up.railway.app/api/v1"
 set "NEUROSYS_LAB_NAME=Computer Lab"

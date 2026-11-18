@@ -18,7 +18,7 @@ public interface SoftwareDeploymentTargetRepository extends JpaRepository<Softwa
     Optional<SoftwareDeploymentTarget> findByDeploymentIdAndComputerAgentId(String deploymentId, String agentId);
     List<SoftwareDeploymentTarget> findByDeploymentId(String deploymentId);
     
-    @Query("SELECT t FROM SoftwareDeploymentTarget t WHERE (t.computer.agentId = :agentId OR LOWER(t.computer.hostname) = LOWER(:agentId) OR t.computer.id = :agentId) AND t.status IN :statuses AND t.deployment.status IN ('PENDING', 'IN_PROGRESS')")
+    @Query("SELECT t FROM SoftwareDeploymentTarget t WHERE (t.computer.agentId = :agentId OR LOWER(t.computer.hostname) = LOWER(:agentId) OR t.computer.id = :agentId) AND t.status IN :statuses AND t.deployment.status IN ('PENDING', 'IN_PROGRESS', 'PARTIALLY_COMPLETED')")
     List<SoftwareDeploymentTarget> findPendingTasksForAgent(@Param("agentId") String agentId, @Param("statuses") Collection<DeploymentTargetStatus> statuses);
 
     @Query("SELECT t FROM SoftwareDeploymentTarget t WHERE t.deployment.id = :deploymentId AND (t.computer.agentId = :agentId OR LOWER(t.computer.hostname) = LOWER(:agentId) OR t.computer.id = :agentId)")
