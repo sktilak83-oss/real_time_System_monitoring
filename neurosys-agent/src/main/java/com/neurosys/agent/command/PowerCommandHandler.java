@@ -85,38 +85,74 @@ public class PowerCommandHandler {
             switch (commandType.toUpperCase()) {
                 case "LOCK":
                     log.info("[PERF LOG] [AGENT] Executing instant LOCK workstation at {}", Instant.now());
-                    boolean lockSucceeded = false;
                     if (isWindows) {
-                        // 1. Direct JNA Win32 API User32.INSTANCE.LockWorkStation() (0ms instant in-process execution)
-                        try {
-                            com.sun.jna.platform.win32.WinDef.BOOL res = com.sun.jna.platform.win32.User32.INSTANCE.LockWorkStation();
-                            lockSucceeded = (res != null && res.booleanValue());
-                            log.info("[AGENT] JNA User32.LockWorkStation() executed: {}", lockSucceeded);
-                        } catch (Throwable t) {
-                            log.warn("[AGENT] JNA LockWorkStation call: {}", t.getMessage());
-                        }
+                        // The agent runs as SYSTEM in Session 0 (non-interactive).
+                        // LockWorkStation() / rundll32 only work in an interactive user session.
+                        // Fix: schedule a one-shot task with /ru INTERACTIVE so Windows runs it in
+                        // the currently active user desktop session.
 
-                        // 2. Direct rundll32 user32.dll,LockWorkStation execution
+                        // Method 1: schtasks /ru INTERACTIVE — runs in the active user session
+                        boolean lockViaScheduler = false;
                         try {
-                            Process p = new ProcessBuilder(sys32 + "\\rundll32.exe", "user32.dll,LockWorkStation").start();
-                            p.waitFor(500, TimeUnit.MILLISECONDS);
-                            lockSucceeded = true;
-                            log.info("[AGENT] rundll32 LockWorkStation process executed");
+                            // Create a one-shot task that immediately locks using rundll32 in user session
+                            String taskName = "NsLockNow_" + System.currentTimeMillis();
+                            Process createTask = new ProcessBuilder(
+                                sys32 + "\\schtasks.exe",
+                                "/create", "/f",
+                                "/tn", taskName,
+                                "/tr", sys32 + "\\rundll32.exe user32.dll,LockWorkStation",
+                                "/sc", "once",
+                                "/st", "00:00",
+                                "/ru", "INTERACTIVE"
+                            ).start();
+                            createTask.waitFor(3, TimeUnit.SECONDS);
+
+                            Process runTask = new ProcessBuilder(
+                                sys32 + "\\schtasks.exe",
+                                "/run", "/tn", taskName
+                            ).start();
+                            runTask.waitFor(3, TimeUnit.SECONDS);
+
+                            // Cleanup the temp task after a short delay
+                            new Thread(() -> {
+                                try {
+                                    Thread.sleep(5000);
+                                    new ProcessBuilder(sys32 + "\\schtasks.exe",
+                                        "/delete", "/f", "/tn", taskName).start();
+                                } catch (Exception ignored) {}
+                            }).start();
+
+                            lockViaScheduler = true;
+                            log.info("[AGENT] LOCK via schtasks /ru INTERACTIVE scheduled successfully");
                         } catch (Exception e) {
-                            log.warn("[AGENT] rundll32 lock error: {}", e.getMessage());
+                            log.warn("[AGENT] schtasks LOCK error: {}", e.getMessage());
                         }
 
-                        // 3. Fallback: PowerShell LockWorkStation API call
-                        if (!lockSucceeded) {
+                        // Method 2: PowerShell — query current session user and run lock in their session
+                        if (!lockViaScheduler) {
                             try {
-                                new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                                        "(Add-Type '[DllImport(\"user32.dll\")] public static extern bool LockWorkStation();' -Name 'W' -PassThru)::LockWorkStation()")
-                                        .start();
-                                lockSucceeded = true;
-                            } catch (Exception ignored) {}
+                                String psCmd = "$user = (Get-WmiObject Win32_ComputerSystem).UserName; " +
+                                    "if ($user) { " +
+                                    "  $taskName = 'NsLockPs'; " +
+                                    "  $action = New-ScheduledTaskAction -Execute 'rundll32.exe' -Argument 'user32.dll,LockWorkStation'; " +
+                                    "  $settings = New-ScheduledTaskSettingsSet; " +
+                                    "  Register-ScheduledTask -Force -TaskName $taskName -Action $action -RunLevel Highest -Settings $settings | Out-Null; " +
+                                    "  Start-ScheduledTask -TaskName $taskName; " +
+                                    "  Start-Sleep -Seconds 3; " +
+                                    "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null; " +
+                                    "}";
+                                new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psCmd).start();
+                                log.info("[AGENT] LOCK via PowerShell ScheduledTask fallback launched");
+                            } catch (Exception e2) {
+                                log.warn("[AGENT] PowerShell LOCK fallback error: {}", e2.getMessage());
+                            }
                         }
                     } else {
-                        log.warn("Lock workstation is supported natively on Windows systems.");
+                        // Linux/Mac: lock via screensaver
+                        try {
+                            new ProcessBuilder("bash", "-c", "loginctl lock-sessions || gnome-screensaver-command -l || xscreensaver-command -lock").start();
+                        } catch (Exception ignored) {}
+                        log.warn("[AGENT] Lock attempted on non-Windows system.");
                     }
                     updateStatusAsync(commandId, "SUCCESS", null);
                     log.info("[PERF LOG] [AGENT] LOCK command completed in {}ms", System.currentTimeMillis() - startExecMs);
