@@ -2,7 +2,7 @@
 title NeuroSys Cloud Monitoring Agent Daemon
 cd /d "%~dp0"
 if exist "%~dp0cache\stopped.flag" del /f /q "%~dp0cache\stopped.flag" >nul 2>&1
-set "NEUROSYS_SERVER_URL=https://realtimesystem-production.up.railway.app/api/v1"
+set "NEUROSYS_SERVER_URL=https://realtimesystemmonitoring-production-ca12724a.up.railway.app/api/v1"
 set "NEUROSYS_LAB_NAME=Computer Lab"
 set "JAVA_EXE=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot\bin\java.exe"
 if not exist "%JAVA_EXE%" set "JAVA_EXE=java.exe"
