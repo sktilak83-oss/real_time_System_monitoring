@@ -289,48 +289,58 @@ const Computers = () => {
       </div>
 
       {/* Selected System Power Control Bar */}
-      <div className="p-4 bg-slate-900 text-white rounded-xl shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Power className="w-6 h-6 text-red-400" />
+      <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl shadow-lg border-2 border-indigo-500/30 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-red-500/20 border border-red-400/40 flex items-center justify-center text-red-400 shadow-xs">
+            <Power className="w-6 h-6 text-red-400" />
+          </div>
           <div>
-            <h3 className="text-sm font-extrabold text-white">Selected System Remote Power Management</h3>
-            <p className="text-xs text-slate-400 font-medium">Select workstation checkboxes in the table below to execute targeted remote power actions</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-black text-white tracking-wide">REMOTE POWER MANAGEMENT</h3>
+              <span className="bg-red-500/20 text-red-300 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border border-red-400/30">
+                Fleet Power Controls
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 font-medium mt-0.5">Select workstation checkboxes in the fleet table below to dispatch instant hardware commands</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {selectedIds.length > 0 ? (
-            <div className="flex items-center gap-2 animate-fade-in-up">
-              <span className="text-xs font-extrabold text-amber-400 mr-2">{selectedIds.length} Workstation(s) Selected</span>
+            <div className="flex flex-wrap items-center gap-2 animate-fade-in-up">
+              <span className="text-xs font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-3 py-1.5 rounded-lg mr-1">
+                {selectedIds.length} Selected
+              </span>
               <button
                 onClick={() => handleTriggerSelectedPowerAction('LOCK')}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
-                <Lock className="w-4 h-4 text-amber-400" /> Lock Selected ({selectedIds.length})
+                <Lock className="w-4 h-4 text-white" /> Lock ({selectedIds.length})
               </button>
               <button
                 onClick={() => handleTriggerSelectedPowerAction('RESTART')}
-                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
-                <RotateCcw className="w-4 h-4" /> Restart Selected ({selectedIds.length})
+                <RotateCcw className="w-4 h-4 text-white" /> Restart ({selectedIds.length})
               </button>
               <button
                 onClick={() => handleTriggerSelectedPowerAction('SHUTDOWN')}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
-                <Power className="w-4 h-4" /> Shutdown Selected ({selectedIds.length})
+                <Power className="w-4 h-4 text-white" /> Shutdown ({selectedIds.length})
               </button>
               <button
                 onClick={handleDeleteSelected}
-                className="px-3.5 py-2 bg-red-800 hover:bg-red-900 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm border border-red-700"
+                className="px-3.5 py-2 bg-red-950 hover:bg-red-900 text-red-200 hover:text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm border border-red-700"
                 title="Permanently remove selected computers from the dashboard"
               >
-                <Trash2 className="w-4 h-4 text-red-200" /> Delete Selected ({selectedIds.length})
+                <Trash2 className="w-4 h-4 text-red-400" /> Delete ({selectedIds.length})
               </button>
             </div>
           ) : (
-            <div className="text-xs font-semibold text-slate-400 italic bg-slate-800/60 px-4 py-2 rounded-lg border border-slate-700/60">
-              Select checkbox(es) in the table below to enable Selected System Shutdown
+            <div className="text-xs font-semibold text-slate-300 italic bg-slate-800/80 px-4 py-2.5 rounded-xl border border-slate-700/80 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-slate-400 animate-ping"></span>
+              Select workstation checkbox(es) below to unlock instant Lock, Restart, and Shutdown
             </div>
           )}
         </div>
