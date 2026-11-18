@@ -13,7 +13,9 @@ import {
   ArrowLeft,
   RefreshCw,
   Clock,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ProcessTable from '../components/ProcessTable';
@@ -32,6 +34,20 @@ const ComputerDetails = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState('24h'); // '1h' | '6h' | '24h' | '7d'
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await metricsService.deleteComputer(id);
+      navigate('/computers');
+    } catch (e) {
+      console.error('Failed to delete computer', e);
+      setIsDeleting(false);
+      setDeleteModalOpen(false);
+    }
+  };
 
   useEffect(() => {
     fetchComputerDetails();
@@ -135,6 +151,14 @@ const ComputerDetails = () => {
             className="p-2 rounded-lg border border-outline-variant text-secondary hover:bg-surface-container hover:text-primary transition-colors cursor-pointer"
           >
             <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin text-primary' : ''}`} />
+          </button>
+          <button
+            onClick={() => setDeleteModalOpen(true)}
+            title="Permanently Delete this Computer"
+            className="px-3.5 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Delete Workstation</span>
           </button>
         </div>
       </div>
@@ -435,6 +459,40 @@ const ComputerDetails = () => {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="text-headline-md font-bold text-slate-900">Delete Workstation</h3>
+            </div>
+            <p className="text-body-md text-slate-700">
+              Are you sure you want to permanently delete <strong className="text-slate-900 font-extrabold">{computer?.hostname || 'this computer'}</strong> and all associated historical telemetry, metrics, and alerts?
+            </p>
+            <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200 font-medium">
+              ⚠️ This will remove the workstation completely from the database and dashboard.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setDeleteModalOpen(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-800 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Workstation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

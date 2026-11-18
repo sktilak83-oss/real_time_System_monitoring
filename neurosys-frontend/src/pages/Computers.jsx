@@ -67,25 +67,37 @@ const Computers = () => {
   // Selection & Power Modal State
   const [selectedIds, setSelectedIds] = useState([]);
   const [powerModal, setPowerModal] = useState({ open: false, action: null, targetCount: 0, targetIds: [] });
-  const [deleteModal, setDeleteModal] = useState({ open: false, id: null, hostname: '' });
+  const [deleteModal, setDeleteModal] = useState({ open: false, id: null, hostname: '', ids: [] });
   const [actionStatusMsg, setActionStatusMsg] = useState('');
 
   const handleDeleteComputer = (id, hostname) => {
-    setDeleteModal({ open: true, id, hostname });
+    setDeleteModal({ open: true, id, hostname, ids: [id] });
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) return;
+    setDeleteModal({
+      open: true,
+      id: null,
+      hostname: `${selectedIds.length} selected workstation(s)`,
+      ids: [...selectedIds]
+    });
   };
 
   const confirmDeleteComputer = async () => {
-    if (!deleteModal.id) return;
+    const targetIds = deleteModal.ids && deleteModal.ids.length > 0 ? deleteModal.ids : (deleteModal.id ? [deleteModal.id] : []);
+    if (targetIds.length === 0) return;
     try {
-      await metricsService.deleteComputer(deleteModal.id);
-      setComputers((prev) => prev.filter((c) => c.id !== deleteModal.id));
-      setActionStatusMsg(`✓ Workstation ${deleteModal.hostname} deleted successfully.`);
+      await Promise.all(targetIds.map(id => metricsService.deleteComputer(id)));
+      setComputers((prev) => prev.filter((c) => !targetIds.includes(c.id)));
+      setSelectedIds((prev) => prev.filter((id) => !targetIds.includes(id)));
+      setActionStatusMsg(`✓ Deleted ${targetIds.length} workstation(s) successfully.`);
       setTimeout(() => setActionStatusMsg(''), 4000);
     } catch (err) {
       console.error('Failed to delete computer', err);
       setActionStatusMsg(`Failed to delete computer: ${err.message || 'Error'}`);
     } finally {
-      setDeleteModal({ open: false, id: null, hostname: '' });
+      setDeleteModal({ open: false, id: null, hostname: '', ids: [] });
     }
   };
 
@@ -308,6 +320,13 @@ const Computers = () => {
               >
                 <Power className="w-4 h-4" /> Shutdown Selected ({selectedIds.length})
               </button>
+              <button
+                onClick={handleDeleteSelected}
+                className="px-3.5 py-2 bg-red-800 hover:bg-red-900 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm border border-red-700"
+                title="Permanently remove selected computers from the dashboard"
+              >
+                <Trash2 className="w-4 h-4 text-red-200" /> Delete Selected ({selectedIds.length})
+              </button>
             </div>
           ) : (
             <div className="text-xs font-semibold text-slate-400 italic bg-slate-800/60 px-4 py-2 rounded-lg border border-slate-700/60">
@@ -485,11 +504,12 @@ const Computers = () => {
                             View Details
                           </button>
                           <button
-                            onClick={() => handleDeleteComputer(comp.id, comp.hostname || comp.computerName)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 transition-colors cursor-pointer ml-0.5"
-                            title="Delete Computer from Dashboard"
+                            onClick={() => handleDeleteComputer(comp.id, comp.displayName || comp.computerName || comp.hostname)}
+                            className="px-2.5 py-1 text-xs font-bold rounded border border-red-200 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-all cursor-pointer flex items-center gap-1 shadow-xs ml-1"
+                            title="Permanently Delete this Computer from Dashboard"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </td>
