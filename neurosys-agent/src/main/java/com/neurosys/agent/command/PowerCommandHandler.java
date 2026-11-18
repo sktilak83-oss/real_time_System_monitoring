@@ -86,73 +86,87 @@ public class PowerCommandHandler {
                 case "LOCK":
                     log.info("[PERF LOG] [AGENT] Executing instant LOCK workstation at {}", Instant.now());
                     if (isWindows) {
-                        // The agent runs as SYSTEM in Session 0 (non-interactive).
-                        // LockWorkStation() / rundll32 only work in an interactive user session.
-                        // Fix: schedule a one-shot task with /ru INTERACTIVE so Windows runs it in
-                        // the currently active user desktop session.
+                        // The agent may run as SYSTEM in Session 0 (non-interactive).
+                        // LockWorkStation() only works in an interactive user session.
+                        // Strategy: try multiple methods from strongest to most compatible.
 
-                        // Method 1: schtasks /ru INTERACTIVE — runs in the active user session
-                        boolean lockViaScheduler = false;
+                        // Method 1: PowerShell with Register-ScheduledTask targeting the current logged-in user's session
                         try {
-                            // Create a one-shot task that immediately locks using rundll32 in user session
-                            String taskName = "NsLockNow_" + System.currentTimeMillis();
-                            Process createTask = new ProcessBuilder(
-                                sys32 + "\\schtasks.exe",
-                                "/create", "/f",
-                                "/tn", taskName,
-                                "/tr", sys32 + "\\rundll32.exe user32.dll,LockWorkStation",
-                                "/sc", "once",
-                                "/st", "00:00",
-                                "/ru", "INTERACTIVE"
-                            ).start();
-                            createTask.waitFor(3, TimeUnit.SECONDS);
+                            // Write a tiny lock bat to TEMP then run it as the logged-in user via scheduled task
+                            String tempDir = System.getenv("TEMP");
+                            if (tempDir == null || tempDir.isEmpty()) tempDir = "C:\\Windows\\Temp";
+                            java.io.File lockBat = new java.io.File(tempDir, "ns_lock_now.bat");
+                            java.nio.file.Files.writeString(lockBat.toPath(),
+                                "@echo off\r\n" +
+                                sys32 + "\\rundll32.exe user32.dll,LockWorkStation\r\n");
 
-                            Process runTask = new ProcessBuilder(
-                                sys32 + "\\schtasks.exe",
-                                "/run", "/tn", taskName
-                            ).start();
-                            runTask.waitFor(3, TimeUnit.SECONDS);
+                            String taskName = "NsLockSession";
+                            // Build PowerShell that finds the active session user, registers a task as that user, runs it immediately
+                            String psLock =
+                                "$loggedUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName;" +
+                                "if (!$loggedUser) { $sessions = query session 2>&1; $activeLine = $sessions | Where-Object { $_ -match 'Active' } | Select-Object -First 1; if ($activeLine -match '\\s+(\\S+)\\s+.*Active') { $loggedUser = $Matches[1] } };" +
+                                "$batPath = '" + lockBat.getAbsolutePath().replace("\\", "\\\\") + "';" +
+                                "$taskName = '" + taskName + "';" +
+                                "$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c \"' + $batPath + '\"');" +
+                                "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;" +
+                                "if ($loggedUser) {" +
+                                "  $domainUser = $loggedUser;" +
+                                "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null;" +
+                                "  Register-ScheduledTask -Force -TaskName $taskName -Action $action -Settings $settings -RunLevel Limited -User $domainUser | Out-Null;" +
+                                "} else {" +
+                                "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null;" +
+                                "  Register-ScheduledTask -Force -TaskName $taskName -Action $action -Settings $settings | Out-Null;" +
+                                "};" +
+                                "Start-ScheduledTask -TaskName $taskName;" +
+                                "Start-Sleep -Seconds 3;" +
+                                "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null;";
 
-                            // Cleanup the temp task after a short delay
-                            new Thread(() -> {
-                                try {
-                                    Thread.sleep(5000);
-                                    new ProcessBuilder(sys32 + "\\schtasks.exe",
-                                        "/delete", "/f", "/tn", taskName).start();
-                                } catch (Exception ignored) {}
-                            }).start();
-
-                            lockViaScheduler = true;
-                            log.info("[AGENT] LOCK via schtasks /ru INTERACTIVE scheduled successfully");
+                            Process psProc = new ProcessBuilder(
+                                "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", psLock
+                            ).redirectErrorStream(true).start();
+                            String psOut = new String(psProc.getInputStream().readAllBytes());
+                            psProc.waitFor(10, TimeUnit.SECONDS);
+                            log.info("[AGENT] LOCK via PS ScheduledTask as logged-in user. Output: {}", psOut.trim());
                         } catch (Exception e) {
-                            log.warn("[AGENT] schtasks LOCK error: {}", e.getMessage());
+                            log.warn("[AGENT] PS ScheduledTask LOCK error: {}", e.getMessage());
                         }
 
-                        // Method 2: PowerShell — query current session user and run lock in their session
-                        if (!lockViaScheduler) {
-                            try {
-                                String psCmd = "$user = (Get-WmiObject Win32_ComputerSystem).UserName; " +
-                                    "if ($user) { " +
-                                    "  $taskName = 'NsLockPs'; " +
-                                    "  $action = New-ScheduledTaskAction -Execute 'rundll32.exe' -Argument 'user32.dll,LockWorkStation'; " +
-                                    "  $settings = New-ScheduledTaskSettingsSet; " +
-                                    "  Register-ScheduledTask -Force -TaskName $taskName -Action $action -RunLevel Highest -Settings $settings | Out-Null; " +
-                                    "  Start-ScheduledTask -TaskName $taskName; " +
-                                    "  Start-Sleep -Seconds 3; " +
-                                    "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null; " +
-                                    "}";
-                                new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psCmd).start();
-                                log.info("[AGENT] LOCK via PowerShell ScheduledTask fallback launched");
-                            } catch (Exception e2) {
-                                log.warn("[AGENT] PowerShell LOCK fallback error: {}", e2.getMessage());
-                            }
+                        // Method 2: Fallback - schtasks CLI with INTERACTIVE flag
+                        try {
+                            String taskName2 = "NsLockInteractive";
+                            String[] createArgs = {
+                                sys32 + "\\schtasks.exe", "/create", "/f",
+                                "/tn", taskName2,
+                                "/tr", "\"" + sys32 + "\\rundll32.exe\" user32.dll,LockWorkStation",
+                                "/sc", "once", "/st", "00:00",
+                                "/ru", "INTERACTIVE"
+                            };
+                            Process create2 = new ProcessBuilder(createArgs).redirectErrorStream(true).start();
+                            create2.waitFor(3, TimeUnit.SECONDS);
+                            Process run2 = new ProcessBuilder(sys32 + "\\schtasks.exe", "/run", "/tn", taskName2)
+                                .redirectErrorStream(true).start();
+                            run2.waitFor(2, TimeUnit.SECONDS);
+                            new Thread(() -> {
+                                try { Thread.sleep(5000);
+                                    new ProcessBuilder(sys32 + "\\schtasks.exe", "/delete", "/f", "/tn", taskName2).start();
+                                } catch (Exception ignored2) {}
+                            }).start();
+                            log.info("[AGENT] LOCK via schtasks /ru INTERACTIVE fallback launched");
+                        } catch (Exception e2) {
+                            log.warn("[AGENT] schtasks INTERACTIVE LOCK error: {}", e2.getMessage());
+                        }
+
+                        // Method 3: Direct JNA (works if agent IS in an interactive session)
+                        try {
+                            com.sun.jna.platform.win32.User32.INSTANCE.LockWorkStation();
+                            log.info("[AGENT] LOCK via JNA LockWorkStation called");
+                        } catch (Throwable t) {
+                            log.warn("[AGENT] JNA LockWorkStation: {}", t.getMessage());
                         }
                     } else {
-                        // Linux/Mac: lock via screensaver
                         try {
-                            new ProcessBuilder("bash", "-c", "loginctl lock-sessions || gnome-screensaver-command -l || xscreensaver-command -lock").start();
+                            new ProcessBuilder("bash", "-c", "loginctl lock-sessions").start();
                         } catch (Exception ignored) {}
-                        log.warn("[AGENT] Lock attempted on non-Windows system.");
                     }
                     updateStatusAsync(commandId, "SUCCESS", null);
                     log.info("[PERF LOG] [AGENT] LOCK command completed in {}ms", System.currentTimeMillis() - startExecMs);
