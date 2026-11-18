@@ -200,74 +200,130 @@ public class DeploymentCommandHandler {
                 }
             }
 
-            // Step 4: Silent Installation Execution
+            // Step 4: Verify downloaded file is a valid binary, not an HTML error page
+            if (tempInstaller.length() < 2048) {
+                try {
+                    String preview = Files.readString(tempInstaller.toPath(), java.nio.charset.StandardCharsets.ISO_8859_1);
+                    if (preview.toLowerCase().contains("<html") || preview.toLowerCase().contains("<!doctype")) {
+                        log.error("Downloaded file is an HTML page, not an installer binary: {}", preview);
+                        updateStatusAsync(deploymentId, "FAILED", "Download URL returned an HTML page instead of an installer binary");
+                        return;
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Step 5: Silent Installation Execution
             String finalArgs = detectOptimalSilentArgs(tempInstaller, silentArguments, isMsi);
             updateStatusAsync(deploymentId, "INSTALLING", "Executing silent installation (" + finalArgs + ")...");
             log.info("Executing silent installation for {} with args: '{}'", packageName, finalArgs);
 
-            ProcessBuilder pb;
-            List<String> command = new ArrayList<>();
-            if (isMsi) {
-                command.add("msiexec.exe");
-                command.add("/i");
-                command.add(tempInstaller.getAbsolutePath());
-                if (!finalArgs.isBlank()) {
-                    command.addAll(Arrays.asList(finalArgs.trim().split("\\s+")));
-                }
-                if (!finalArgs.contains("MSIINSTALLPERUSER")) {
-                    command.add("ALLUSERS=2");
-                    command.add("MSIINSTALLPERUSER=1");
-                }
-            } else {
-                command.add(tempInstaller.getAbsolutePath());
-                if (!finalArgs.isBlank()) {
-                    command.addAll(Arrays.asList(finalArgs.trim().split("\\s+")));
-                }
-            }
-            pb = new ProcessBuilder(command);
+            int exitCode = -1;
+            boolean executed = false;
 
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            boolean finished = process.waitFor(5, TimeUnit.MINUTES);
-
-            if (!finished) {
-                process.destroyForcibly();
-                log.error("Silent installer execution timed out after 5 minutes");
-                updateStatusAsync(deploymentId, "FAILED", "Installer timed out after 5 minutes");
-                return;
-            }
-
-            int exitCode = process.exitValue();
-            log.info("Installer exited with code {}", exitCode);
-
-            // 0, 3010 (Reboot required), 1641 (Reboot initiated) are successful MSI/EXE codes
-            if (exitCode == 0 || exitCode == 3010 || exitCode == 1641) {
-                updateStatusAsync(deploymentId, "INSTALLED", "Software installed successfully (Exit Code: " + exitCode + ")");
-                log.info("Deployment [{}] for package '{}' completed successfully!", deploymentNumber, packageName);
-
-                // Trigger fresh software inventory scan and update backend
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        Thread.sleep(3000);
-                        var freshSoftware = softwareCollector.collectInstalledSoftware();
-                        metricsSender.sendSoftwarePayload(AgentConfig.getAgentId(), systemInfoCollector.getHostname(), freshSoftware);
-                    } catch (Exception ignored) {}
-                });
-            } else if (exitCode == 1638 || exitCode == 1603 || exitCode == 2) {
-                // If installer exited with 1638 (another version already installed) or 1603 (downgrade refused / existing install)
-                boolean nowPresent = softwareCollector.collectInstalledSoftware().stream().anyMatch(item -> {
-                    String name = item.get("name");
-                    return name != null && isNameMatch(name, cleanAppName);
-                });
-                if (nowPresent) {
-                    updateStatusAsync(deploymentId, "ALREADY_INSTALLED", "Application " + cleanAppName + " is already installed on target machine");
-                    log.info("Deployment [{}] for package '{}' marked as ALREADY_INSTALLED after exit code {}", deploymentNumber, packageName, exitCode);
+            // Method 1: Direct ProcessBuilder with output redirected to temp log file (prevents pipe deadlock)
+            try {
+                List<String> command = new ArrayList<>();
+                if (isMsi) {
+                    command.add("msiexec.exe");
+                    command.add("/i");
+                    command.add(tempInstaller.getAbsolutePath());
+                    command.add("/qn");
+                    command.add("/norestart");
                 } else {
-                    updateStatusAsync(deploymentId, "FAILED", "Installer failed with exit code " + exitCode);
+                    command.add(tempInstaller.getAbsolutePath());
+                    if (!finalArgs.isBlank()) {
+                        command.addAll(Arrays.asList(finalArgs.trim().split("\\s+")));
+                    }
                 }
-            } else {
-                updateStatusAsync(deploymentId, "FAILED", "Installer failed with exit code " + exitCode);
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                File installLog = File.createTempFile("ns-install-log-", ".txt");
+                installLog.deleteOnExit();
+                pb.redirectOutput(installLog);
+
+                Process process = pb.start();
+                boolean finished = process.waitFor(5, TimeUnit.MINUTES);
+                if (finished) {
+                    exitCode = process.exitValue();
+                    executed = true;
+                    log.info("Direct installer execution finished with exit code {}", exitCode);
+                } else {
+                    process.destroyForcibly();
+                    log.error("Direct installer execution timed out after 5 minutes");
+                }
+            } catch (Exception e) {
+                log.warn("Direct execution failed ({}), falling back to PowerShell Start-Process", e.getMessage());
             }
+
+            // Method 2: If direct execution failed or requested elevation (error 740), use PowerShell
+            if (!executed || exitCode == 740) {
+                try {
+                    log.info("Launching installer via PowerShell Start-Process for elevation handling...");
+                    String psCmd;
+                    if (isMsi) {
+                        psCmd = "$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i `\"" +
+                                tempInstaller.getAbsolutePath() + "`\" /qn /norestart' -Wait -PassThru; exit $p.ExitCode";
+                    } else {
+                        psCmd = "$p = Start-Process -FilePath '\"" + tempInstaller.getAbsolutePath() +
+                                "\"' -ArgumentList '\"" + finalArgs + "\"' -Wait -PassThru; exit $p.ExitCode";
+                    }
+                    ProcessBuilder psPb = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psCmd);
+                    psPb.redirectErrorStream(true);
+                    File psLog = File.createTempFile("ns-ps-log-", ".txt");
+                    psLog.deleteOnExit();
+                    psPb.redirectOutput(psLog);
+
+                    Process psProc = psPb.start();
+                    boolean finished = psProc.waitFor(5, TimeUnit.MINUTES);
+                    if (finished) {
+                        exitCode = psProc.exitValue();
+                        executed = true;
+                        log.info("PowerShell installer execution finished with exit code {}", exitCode);
+                    } else {
+                        psProc.destroyForcibly();
+                        log.error("PowerShell installer execution timed out after 5 minutes");
+                    }
+                } catch (Exception e2) {
+                    log.error("PowerShell elevated execution failed: {}", e2.getMessage());
+                }
+            }
+
+            // Step 6: Post-Installation Inventory Verification
+            // Wait 3 seconds for Windows to commit registry entries and file system changes
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+
+            boolean nowPresent = softwareCollector.collectInstalledSoftware().stream().anyMatch(item -> {
+                String name = item.get("name");
+                return name != null && isNameMatch(name, cleanAppName);
+            });
+
+            log.info("Post-install verification for '{}' (Clean: '{}'): found in software inventory = {}, exit code = {}",
+                    packageName, cleanAppName, nowPresent, exitCode);
+
+            // If the application is verified present on the system, it's successful regardless of exit code!
+            if (nowPresent) {
+                updateStatusAsync(deploymentId, "INSTALLED", "Software " + cleanAppName + " installed and verified in inventory (Exit Code: " + exitCode + ")");
+                log.info("Deployment [{}] for package '{}' completed successfully (verified present)!", deploymentNumber, packageName);
+            } else if (exitCode == 0 || exitCode == 3010 || exitCode == 1641) {
+                // Common Windows installer success codes
+                updateStatusAsync(deploymentId, "INSTALLED", "Software installed successfully (Exit Code: " + exitCode + ")");
+                log.info("Deployment [{}] for package '{}' completed successfully (Exit Code: {})", deploymentNumber, packageName, exitCode);
+            } else if (exitCode == 1638) {
+                updateStatusAsync(deploymentId, "ALREADY_INSTALLED", "Application " + cleanAppName + " is already installed on target machine");
+                log.info("Deployment [{}] for package '{}' marked as ALREADY_INSTALLED (code 1638)", deploymentNumber, packageName);
+            } else {
+                updateStatusAsync(deploymentId, "FAILED", "Installer exited with code " + exitCode + " (Application not found in software inventory)");
+                log.warn("Deployment [{}] for package '{}' failed with exit code {}", deploymentNumber, packageName, exitCode);
+            }
+
+            // Always trigger fresh software inventory scan and update backend
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Thread.sleep(4000);
+                    var freshSoftware = softwareCollector.collectInstalledSoftware();
+                    metricsSender.sendSoftwarePayload(AgentConfig.getAgentId(), systemInfoCollector.getHostname(), freshSoftware);
+                } catch (Exception ignored) {}
+            });
 
         } catch (Exception e) {
             log.error("Deployment process error", e);
@@ -290,7 +346,7 @@ public class DeploymentCommandHandler {
             return configuredArgs.trim();
         }
         if (isMsi) {
-            return "/qn /norestart ALLUSERS=2 MSIINSTALLPERUSER=1";
+            return "/qn /norestart";
         }
         try (InputStream is = Files.newInputStream(installerFile.toPath())) {
             byte[] buffer = new byte[Math.min((int) installerFile.length(), 1024 * 512)];
