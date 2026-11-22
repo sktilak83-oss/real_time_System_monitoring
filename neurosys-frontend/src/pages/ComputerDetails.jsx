@@ -16,7 +16,19 @@ import {
   Trash2,
   AlertTriangle
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { 
+  AreaChart, 
+  Area, 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  ReferenceLine,
+  Legend 
+} from 'recharts';
 import ProcessTable from '../components/ProcessTable';
 import RemotePowerManagement from '../components/RemotePowerManagement';
 import LogAnalyzer from '../components/LogAnalyzer';
@@ -388,42 +400,166 @@ const ComputerDetails = () => {
 
         {activeTab === 'ai' && aiPrediction && (
           <div className="card-elevated p-6 space-y-6">
-            <div className="flex items-center justify-between border-b border-outline-variant pb-4">
+            {/* Header with Model & Risk Badge */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-outline-variant pb-4 gap-4">
               <div>
-                <span className="font-label-md text-label-md px-2.5 py-1 rounded bg-primary-container/20 text-primary border border-primary/30 font-bold uppercase">
-                  Model: {aiPrediction.modelVersion || 'NeuroSys Trend Model v1.0'}
+                <span className="font-label-md text-label-md px-2.5 py-1 rounded bg-primary-container/20 text-primary border border-primary/30 font-bold uppercase tracking-wider">
+                  Model: {aiPrediction.modelVersion || 'NeuroSys Hybrid Linear-Logistic ML Engine v2.0'}
                 </span>
-                <h3 className="font-headline-lg text-headline-lg font-bold text-on-surface mt-2">
+                <h3 className="font-headline-lg text-headline-lg font-bold text-on-surface mt-2 flex items-center gap-2">
+                  <BrainCircuit className="w-6 h-6 text-primary" />
                   {aiPrediction.predictedIssue || 'Optimal System Performance'}
                 </h3>
               </div>
-              <div className="text-right">
-                <span className="font-display text-display text-primary">{aiPrediction.confidencePercent || 92}%</span>
-                <span className="block font-label-md text-label-md text-secondary uppercase">Statistical Confidence</span>
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span className={`w-3 h-3 rounded-full animate-pulse ${
+                      aiPrediction.riskLevel === 'CRITICAL' ? 'bg-red-500' :
+                      aiPrediction.riskLevel === 'ELEVATED' ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`} />
+                    <span className={`font-headline-md font-extrabold ${
+                      aiPrediction.riskLevel === 'CRITICAL' ? 'text-red-600' :
+                      aiPrediction.riskLevel === 'ELEVATED' ? 'text-amber-600' : 'text-emerald-600'
+                    }`}>
+                      {((aiPrediction.crashProbability || 0.02) * 100).toFixed(0)}% Crash Risk
+                    </span>
+                  </div>
+                  <span className="block font-label-md text-label-md text-secondary uppercase font-semibold">
+                    Failure Probability ({aiPrediction.riskLevel || 'HEALTHY'})
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 bg-surface-container-low rounded-lg border border-outline-variant">
-                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-2">Estimated Timeframe</span>
-                <span className="font-headline-md text-headline-md text-on-surface font-bold">{aiPrediction.estimatedTimeframe || 'No issue predicted'}</span>
+            {/* 4 Metric Forecast Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant shadow-sm">
+                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-1">
+                  Crash Probability
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-2xl font-black ${
+                    (aiPrediction.crashProbability || 0) >= 0.65 ? 'text-red-600' :
+                    (aiPrediction.crashProbability || 0) >= 0.35 ? 'text-amber-600' : 'text-emerald-600'
+                  }`}>
+                    {((aiPrediction.crashProbability || 0.02) * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-xs font-semibold text-secondary">Logistic Sigmoid</span>
+                </div>
               </div>
-              <div className="p-4 bg-surface-container-low rounded-lg border border-outline-variant">
-                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-2">Risk Level</span>
-                <span className="font-headline-md text-headline-md font-bold text-amber-600">{aiPrediction.riskLevel || 'LOW'}</span>
+
+              <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant shadow-sm">
+                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-1">
+                  Estimated Timeframe
+                </span>
+                <span className="text-lg font-bold text-on-surface block truncate">
+                  {aiPrediction.estimatedTimeframe || 'Stable (No issue)'}
+                </span>
+                <span className="text-xs text-secondary font-medium">Time-to-Exhaustion</span>
+              </div>
+
+              <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant shadow-sm">
+                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-1">
+                  Model Confidence
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-primary">
+                    {aiPrediction.confidencePercent || 92}%
+                  </span>
+                  <span className="text-xs font-semibold text-secondary">R² Regression Fit</span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant shadow-sm">
+                <span className="font-label-md text-label-md text-secondary uppercase font-bold block mb-1">
+                  Risk Level
+                </span>
+                <span className={`text-lg font-black uppercase px-2.5 py-0.5 rounded-full inline-block mt-0.5 ${
+                  aiPrediction.riskLevel === 'CRITICAL' ? 'bg-red-100 text-red-700 border border-red-300' :
+                  aiPrediction.riskLevel === 'ELEVATED' ? 'bg-amber-100 text-amber-700 border border-amber-300' :
+                  'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                }`}>
+                  {aiPrediction.riskLevel || 'HEALTHY'}
+                </span>
               </div>
             </div>
 
-            {aiPrediction.contributingFactors && (
+            {/* Interactive Multi-Horizon Predictive Forecast Chart */}
+            <div className="p-5 bg-surface-container-low rounded-xl border border-outline-variant shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-headline-sm font-bold text-on-surface flex items-center gap-2">
+                    <LineChartIcon className="w-5 h-5 text-primary" />
+                    Multi-Horizon Future Telemetry Trajectory (+15m, +1h, +6h, +24h)
+                  </h4>
+                  <p className="text-xs text-secondary mt-0.5">
+                    Solid lines represent observed real telemetry; dashed lines represent projected machine learning trajectories.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-semibold">
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-blue-500 rounded" /> RAM %</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-amber-500 rounded" /> CPU %</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-emerald-500 rounded" /> Health</span>
+                </div>
+              </div>
+
+              <div className="h-64 w-full pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={[...(aiPrediction.historicalData || []), ...(aiPrediction.predictedData || [])]}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" stroke="#64748b" fontSize={11} />
+                    <YAxis domain={[0, 100]} stroke="#64748b" fontSize={11} unit="%" />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#cbd5e1', borderRadius: '8px', fontSize: '12px' }}
+                      formatter={(val, name) => [`${val}%`, name]}
+                    />
+                    <ReferenceLine y={90} stroke="#ef4444" strokeDasharray="4 4" label={{ value: 'Critical 90%', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+                    
+                    {/* RAM Lines: Solid actual, Dashed forecast */}
+                    <Line type="monotone" dataKey="actualRam" name="Observed RAM" stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="predictedRam" name="Forecast RAM" stroke="#3b82f6" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#3b82f6' }} connectNulls />
+
+                    {/* CPU Lines: Solid actual, Dashed forecast */}
+                    <Line type="monotone" dataKey="actualCpu" name="Observed CPU" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="predictedCpu" name="Forecast CPU" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: '#f59e0b' }} connectNulls />
+
+                    {/* Composite Health Index */}
+                    <Line type="monotone" dataKey="actualScore" name="Health Score" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="predictedScore" name="Forecast Health" stroke="#10b981" strokeWidth={1.5} strokeDasharray="3 3" dot={{ r: 3, fill: '#10b981' }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Contributing Evidence Factors */}
+            {aiPrediction.contributingFactors && aiPrediction.contributingFactors.length > 0 && (
               <div className="space-y-2">
-                <h4 className="font-label-md text-label-md text-secondary uppercase font-bold">Contributing Evidence Factors</h4>
-                <div className="space-y-2">
+                <h4 className="font-label-md text-label-md text-secondary uppercase font-bold tracking-wider">
+                  Model Feature Weights & Contributing Evidence
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {aiPrediction.contributingFactors.map((factor, idx) => (
-                    <div key={idx} className="p-3 bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                      <span>{factor}</span>
+                    <div key={idx} className="p-3 bg-surface-container-low border border-outline-variant rounded-xl font-body-md text-body-md text-on-surface flex items-start gap-2.5 shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm text-slate-800 leading-relaxed">{factor}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Proactive Recommended Remediation */}
+            {aiPrediction.recommendedAction && (
+              <div className="p-4 rounded-xl bg-primary-container/10 border border-primary/30 flex items-start gap-3 shadow-xs">
+                <BrainCircuit className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h5 className="font-bold text-sm text-primary uppercase tracking-wide">
+                    AI Automated Remediation Recommendation
+                  </h5>
+                  <p className="text-xs sm:text-sm text-on-surface font-medium leading-relaxed">
+                    {aiPrediction.recommendedAction}
+                  </p>
                 </div>
               </div>
             )}
