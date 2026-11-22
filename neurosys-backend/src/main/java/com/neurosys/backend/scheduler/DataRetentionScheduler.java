@@ -68,6 +68,19 @@ public class DataRetentionScheduler {
             int deletedEvents = diagnosticEventRepository.deleteEventsOlderThan(logCutoff);
             int deletedLogs = systemLogRepository.deleteLogsOlderThan(logCutoff);
 
+            try {
+                int deletedHealth = jdbcTemplate.update("DELETE FROM health_scores WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)", retentionDays);
+                stats.put("deletedHealthScores", deletedHealth);
+            } catch (Exception ignored) {}
+            try {
+                int deletedAudits = jdbcTemplate.update("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)", logsRetentionDays);
+                stats.put("deletedAudits", deletedAudits);
+            } catch (Exception ignored) {}
+            try {
+                int deletedPredictions = jdbcTemplate.update("DELETE FROM predictions WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)", logsRetentionDays);
+                stats.put("deletedPredictions", deletedPredictions);
+            } catch (Exception ignored) {}
+
             stats.put("deletedMetrics", deletedMetrics);
             stats.put("deletedEvents", deletedEvents);
             stats.put("deletedLogs", deletedLogs);
@@ -226,31 +239,39 @@ public class DataRetentionScheduler {
     public Map<String, Object> purgeAllTelemetryAndLogs() {
         Map<String, Object> result = new HashMap<>();
         try {
-            log.warn("[FULL VOLUME RECOVERY] Truncating all non-essential time-series tables (health_scores, predictions, system_metrics, logs)...");
+            log.warn("[FULL VOLUME RECOVERY] Purging all non-essential time-series tables...");
             String[] tables = {"system_metrics", "health_scores", "predictions", "logs", "diagnostic_events", "diagnostic_incidents", "alerts", "remote_power_commands", "remote_power_audits"};
 
-            jdbcTemplate.execute((java.sql.Connection conn) -> {
-                try (java.sql.Statement stmt = conn.createStatement()) {
-                    stmt.execute("SET FOREIGN_KEY_CHECKS = 0");
-                    for (String table : tables) {
-                        try {
-                            stmt.execute("TRUNCATE TABLE " + table);
-                            result.put("truncated_" + table, true);
-                            log.info("[VOLUME RECOVERY] Truncated {}", table);
-                        } catch (Exception e) {
-                            try {
-                                int count = stmt.executeUpdate("DELETE FROM " + table);
-                                result.put("deleted_" + table, count);
-                                log.info("[VOLUME RECOVERY FALLBACK] Deleted {} rows from {}", count, table);
-                            } catch (Exception ex) {
-                                result.put("error_" + table, ex.getMessage());
-                            }
-                        }
+            try { jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0"); } catch (Exception ignored) {}
+
+            for (String table : tables) {
+                try {
+                    jdbcTemplate.execute("TRUNCATE TABLE " + table);
+                    result.put("truncated_" + table, true);
+                    log.info("[VOLUME RECOVERY] Truncated {}", table);
+                } catch (Exception e) {
+                    try {
+                        int count = jdbcTemplate.update("DELETE FROM " + table);
+                        result.put("deleted_" + table, count);
+                        log.info("[VOLUME RECOVERY FALLBACK] Deleted {} rows from {}", count, table);
+                    } catch (Exception ex) {
+                        result.put("error_" + table, ex.getMessage());
+                        log.warn("[VOLUME RECOVERY] Error purging {}: {}", table, ex.getMessage());
                     }
-                    stmt.execute("SET FOREIGN_KEY_CHECKS = 1");
                 }
-                return null;
-            });
+            }
+
+            try { jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1"); } catch (Exception ignored) {}
+
+            try {
+                jdbcTemplate.execute("RESET MASTER");
+                result.put("reset_master", "SUCCESS");
+            } catch (Exception e) {
+                try {
+                    jdbcTemplate.execute("PURGE BINARY LOGS BEFORE NOW()");
+                    result.put("purge_binlogs", "SUCCESS");
+                } catch (Exception ignored) {}
+            }
 
             List<String> optimized = optimizeTables();
             result.put("optimizedTables", optimized);
