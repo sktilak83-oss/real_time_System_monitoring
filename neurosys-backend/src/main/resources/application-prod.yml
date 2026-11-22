@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:${MYSQL_PUBLIC_URL:${MYSQLPRIVATEURL:${DATABASE_URL:jdbc:mysql://${MYSQLHOST:localhost}:${MYSQLPORT:3306}/${MYSQLDATABASE:railway}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}}}}
-    username: ${SPRING_DATASOURCE_USERNAME:${MYSQLUSER:root}}
-    password: ${SPRING_DATASOURCE_PASSWORD:${MYSQLPASSWORD:}}
+    url: ${SPRING_DATASOURCE_URL:${MYSQL_URL:${MYSQL_PRIVATE_URL:${MYSQL_PUBLIC_URL:${MYSQLPRIVATEURL:${DATABASE_URL:jdbc:mysql://${MYSQLHOST:localhost}:${MYSQLPORT:3306}/${MYSQLDATABASE:railway}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}}}}}}
+    username: ${SPRING_DATASOURCE_USERNAME:${MYSQLUSER:${MYSQL_USER:root}}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${MYSQLPASSWORD:${MYSQL_PASSWORD:}}}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect

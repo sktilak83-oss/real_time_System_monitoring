@@ -32,10 +32,13 @@ public class DatabaseConfig {
     public DataSource dataSource() {
         String rawUrl = springDatasourceUrl != null && !springDatasourceUrl.trim().isEmpty() ? springDatasourceUrl : System.getenv("SPRING_DATASOURCE_URL");
         if (rawUrl == null || rawUrl.trim().isEmpty()) {
-            rawUrl = System.getenv("MYSQL_PUBLIC_URL");
+            rawUrl = System.getenv("MYSQL_URL");
         }
         if (rawUrl == null || rawUrl.trim().isEmpty()) {
-            rawUrl = System.getenv("MYSQL_URL");
+            rawUrl = System.getenv("MYSQL_PRIVATE_URL");
+        }
+        if (rawUrl == null || rawUrl.trim().isEmpty()) {
+            rawUrl = System.getenv("MYSQL_PUBLIC_URL");
         }
         if (rawUrl == null || rawUrl.trim().isEmpty()) {
             rawUrl = System.getenv("MYSQLPRIVATEURL");
@@ -98,24 +101,41 @@ public class DatabaseConfig {
             }
         }
 
-        // 3. Fallback
+        // 3. Fallback using MYSQLHOST, MYSQLPORT, MYSQLDATABASE
         if (!configured) {
-            if ("prod".equalsIgnoreCase(activeProfile)) {
-                String railwayHost = "mysql.railway.internal";
-                String jdbcUrl = String.format("jdbc:mysql://%s:3306/railway?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC", railwayHost);
-                log.info("[DATABASE CONFIG] Prod Profile: Target Railway MySQL Internal Networking ({})", jdbcUrl);
-                config.setJdbcUrl(jdbcUrl);
-                config.setUsername(user != null ? user : "root");
-                config.setPassword(pass != null ? pass : "");
-                config.setDriverClassName("com.mysql.cj.jdbc.Driver");
-            } else {
-                String localUrl = "jdbc:mysql://localhost:3306/railway?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
-                log.info("[DATABASE CONFIG] Dev Profile: Configuring local MySQL DataSource (jdbc:mysql://localhost:3306/railway)");
-                config.setJdbcUrl(localUrl);
-                config.setUsername(user != null ? user : "root");
-                config.setPassword(pass != null ? pass : "Karthik@2005");
-                config.setDriverClassName("com.mysql.cj.jdbc.Driver");
+            String host = System.getenv("MYSQLHOST");
+            if (host == null || host.isBlank()) {
+                host = System.getenv("MYSQL_HOST");
             }
+            if (host == null || host.isBlank()) {
+                host = "prod".equalsIgnoreCase(activeProfile) ? "mysql.railway.internal" : "localhost";
+            }
+
+            String port = System.getenv("MYSQLPORT");
+            if (port == null || port.isBlank()) {
+                port = System.getenv("MYSQL_PORT");
+            }
+            if (port == null || port.isBlank()) {
+                port = "3306";
+            }
+
+            String db = System.getenv("MYSQLDATABASE");
+            if (db == null || db.isBlank()) {
+                db = System.getenv("MYSQL_DATABASE");
+            }
+            if (db == null || db.isBlank()) {
+                db = "railway";
+            }
+
+            String defaultPass = "prod".equalsIgnoreCase(activeProfile) ? "" : "Karthik@2005";
+            String password = pass != null ? pass : defaultPass;
+
+            String jdbcUrl = String.format("jdbc:mysql://%s:%s/%s?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC", host, port, db);
+            log.info("[DATABASE CONFIG] Configured Host/Port DataSource (Host: {}, Port: {}, DB: {})", host, port, db);
+            config.setJdbcUrl(jdbcUrl);
+            config.setUsername(user != null ? user : "root");
+            config.setPassword(password);
+            config.setDriverClassName("com.mysql.cj.jdbc.Driver");
         }
 
         config.setInitializationFailTimeout(-1);
