@@ -37,27 +37,31 @@ public class RemotePowerServiceImpl implements RemotePowerService {
 
     @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
     public void maintainAuditTable() {
-        try {
-            log.info("[DB MAINTENANCE] Checking and repairing remote_power_audits storage engine...");
-            jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
-            jdbcTemplate.execute("ALTER TABLE remote_power_commands ENGINE=InnoDB");
-        } catch (Exception e) {
-            log.warn("[DB MAINTENANCE] Table engine alter notice: {}", e.getMessage());
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                // If table is full under memory engine, purge old rows to recover
-                jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 1 DAY)");
+                // Short wait to ensure health checks pass before running DDL
+                Thread.sleep(6000);
+                log.info("[DB MAINTENANCE] Checking and repairing remote_power_audits storage engine...");
                 jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
-            } catch (Exception e2) {
+                jdbcTemplate.execute("ALTER TABLE remote_power_commands ENGINE=InnoDB");
+            } catch (Exception e) {
+                log.warn("[DB MAINTENANCE] Table engine alter notice: {}", e.getMessage());
                 try {
-                    jdbcTemplate.execute("TRUNCATE TABLE remote_power_audits");
+                    // If table is full under memory engine, purge old rows to recover
+                    jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 1 DAY)");
                     jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
-                } catch (Exception ignored) {}
+                } catch (Exception e2) {
+                    try {
+                        jdbcTemplate.execute("TRUNCATE TABLE remote_power_audits");
+                        jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
+                    } catch (Exception ignored) {}
+                }
             }
-        }
 
-        try {
-            jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)");
-        } catch (Exception ignored) {}
+            try {
+                jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)");
+            } catch (Exception ignored) {}
+        });
     }
 
     @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 * * * *")

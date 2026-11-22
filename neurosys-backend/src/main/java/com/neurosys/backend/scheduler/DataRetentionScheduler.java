@@ -42,31 +42,53 @@ public class DataRetentionScheduler {
     @Value("${neurosys.retention.logs-days:7}")
     private int logsRetentionDays;
 
-    // Run automatically on backend startup
+    // Run asynchronously on backend startup so container starts instantly and passes health checks
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional
     public void onStartupCleanup() {
-        log.info("[RETENTION] Initializing database volume retention check on startup (Retention: {}d metrics)...", retentionDays);
-        performRetentionCleanup();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                // Short delay to allow application context to fully serve incoming web traffic first
+                Thread.sleep(5000);
+                log.info("[RETENTION] Initializing background database volume retention check (Retention: {}d metrics)...", retentionDays);
+                performRetentionCleanup();
+            } catch (Throwable t) {
+                log.warn("[RETENTION] Background startup cleanup warning: {}", t.getMessage());
+            }
+        });
     }
 
     // Run automatically every 15 minutes
     @Scheduled(cron = "0 */15 * * * *")
-    @Transactional
     public void scheduledRetentionCleanup() {
         performRetentionCleanup();
     }
 
-    @Transactional
     public Map<String, Object> performRetentionCleanup() {
         Map<String, Object> stats = new HashMap<>();
         try {
             Instant metricCutoff = Instant.now().minus(retentionDays, ChronoUnit.DAYS);
             Instant logCutoff = Instant.now().minus(logsRetentionDays, ChronoUnit.DAYS);
 
-            int deletedMetrics = metricRepository.deleteMetricsOlderThan(metricCutoff);
-            int deletedEvents = diagnosticEventRepository.deleteEventsOlderThan(logCutoff);
-            int deletedLogs = systemLogRepository.deleteLogsOlderThan(logCutoff);
+            int deletedMetrics = 0;
+            try {
+                deletedMetrics = metricRepository.deleteMetricsOlderThan(metricCutoff);
+            } catch (Exception e) {
+                log.warn("[RETENTION] Could not delete old metrics: {}", e.getMessage());
+            }
+
+            int deletedEvents = 0;
+            try {
+                deletedEvents = diagnosticEventRepository.deleteEventsOlderThan(logCutoff);
+            } catch (Exception e) {
+                log.warn("[RETENTION] Could not delete old events: {}", e.getMessage());
+            }
+
+            int deletedLogs = 0;
+            try {
+                deletedLogs = systemLogRepository.deleteLogsOlderThan(logCutoff);
+            } catch (Exception e) {
+                log.warn("[RETENTION] Could not delete old logs: {}", e.getMessage());
+            }
 
             try {
                 int deletedHealth = jdbcTemplate.update("DELETE FROM health_scores WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)", retentionDays);
