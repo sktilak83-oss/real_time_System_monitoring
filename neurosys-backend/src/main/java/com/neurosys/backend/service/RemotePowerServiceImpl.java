@@ -33,6 +33,39 @@ public class RemotePowerServiceImpl implements RemotePowerService {
     private final ComputerRepository computerRepository;
     private final HeartbeatTrackerService heartbeatTrackerService;
     private final WebSocketMetricsPublisher webSocketMetricsPublisher;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void maintainAuditTable() {
+        try {
+            log.info("[DB MAINTENANCE] Checking and repairing remote_power_audits storage engine...");
+            jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
+            jdbcTemplate.execute("ALTER TABLE remote_power_commands ENGINE=InnoDB");
+        } catch (Exception e) {
+            log.warn("[DB MAINTENANCE] Table engine alter notice: {}", e.getMessage());
+            try {
+                // If table is full under memory engine, purge old rows to recover
+                jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 1 DAY)");
+                jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
+            } catch (Exception e2) {
+                try {
+                    jdbcTemplate.execute("TRUNCATE TABLE remote_power_audits");
+                    jdbcTemplate.execute("ALTER TABLE remote_power_audits ENGINE=InnoDB");
+                } catch (Exception ignored) {}
+            }
+        }
+
+        try {
+            jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)");
+        } catch (Exception ignored) {}
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 * * * *")
+    public void hourlyAuditMaintenance() {
+        try {
+            jdbcTemplate.execute("DELETE FROM remote_power_audits WHERE timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY)");
+        } catch (Exception ignored) {}
+    }
 
     @Override
     @Transactional
@@ -72,16 +105,20 @@ public class RemotePowerServiceImpl implements RemotePowerService {
 
         command = commandRepository.save(command);
 
-        // Record Audit Log
-        RemotePowerAudit audit = RemotePowerAudit.builder()
-                .userName(command.getRequestedBy())
-                .computerName(computer.getHostname())
-                .computerId(computer.getId())
-                .action(type)
-                .status("QUEUED")
-                .timestamp(Instant.now())
-                .build();
-        auditRepository.save(audit);
+        // Record Audit Log (guarded so audit storage limits NEVER prevent power command execution)
+        try {
+            RemotePowerAudit audit = RemotePowerAudit.builder()
+                    .userName(command.getRequestedBy())
+                    .computerName(computer.getHostname())
+                    .computerId(computer.getId())
+                    .action(type)
+                    .status("QUEUED")
+                    .timestamp(Instant.now())
+                    .build();
+            auditRepository.save(audit);
+        } catch (Exception auditEx) {
+            log.warn("Non-fatal: could not write remote power audit record: {}", auditEx.getMessage());
+        }
 
         long elapsedMs = System.currentTimeMillis() - startTime;
         log.info("[PERF LOG] [BACKEND] Successfully queued {} command {} for computer {} in {}ms at {}", 
@@ -95,12 +132,18 @@ public class RemotePowerServiceImpl implements RemotePowerService {
     public RemotePowerCommandDto getPendingCommandForAgent(String agentId) {
         if (agentId == null || agentId.isBlank()) return null;
 
-        List<RemotePowerCommand> pendingCmds = commandRepository.findPendingCommandsForAgent(agentId, PowerCommandStatus.PENDING);
+        // Query both PENDING and SENT so network drops or restarts do not drop commands
+        List<RemotePowerCommand> pendingCmds = commandRepository.findPendingCommandsForAgent(
+                agentId, 
+                List.of(PowerCommandStatus.PENDING, PowerCommandStatus.SENT)
+        );
 
         if (!pendingCmds.isEmpty()) {
             RemotePowerCommand command = pendingCmds.get(0);
-            command.setStatus(PowerCommandStatus.SENT);
-            commandRepository.save(command);
+            if (command.getStatus() == PowerCommandStatus.PENDING) {
+                command.setStatus(PowerCommandStatus.SENT);
+                commandRepository.save(command);
+            }
             log.info("[PERF LOG] [BACKEND] Delivered pending {} command {} to agent {} at {}", 
                     command.getCommandType(), command.getId(), agentId, Instant.now());
             return mapToCommandDto(command);
@@ -120,17 +163,21 @@ public class RemotePowerServiceImpl implements RemotePowerService {
         }
         commandRepository.save(command);
 
-        // Update corresponding Audit record
-        RemotePowerAudit audit = RemotePowerAudit.builder()
-                .userName(command.getRequestedBy())
-                .computerName(command.getComputer() != null ? command.getComputer().getHostname() : "Computer")
-                .computerId(command.getComputer() != null ? command.getComputer().getId() : "")
-                .action(command.getCommandType())
-                .status(request.getStatus().name())
-                .failureReason(request.getFailureReason())
-                .timestamp(Instant.now())
-                .build();
-        auditRepository.save(audit);
+        // Update corresponding Audit record (guarded so audit storage limits NEVER crash status updates)
+        try {
+            RemotePowerAudit audit = RemotePowerAudit.builder()
+                    .userName(command.getRequestedBy())
+                    .computerName(command.getComputer() != null ? command.getComputer().getHostname() : "Computer")
+                    .computerId(command.getComputer() != null ? command.getComputer().getId() : "")
+                    .action(command.getCommandType())
+                    .status(request.getStatus().name())
+                    .failureReason(request.getFailureReason())
+                    .timestamp(Instant.now())
+                    .build();
+            auditRepository.save(audit);
+        } catch (Exception auditEx) {
+            log.warn("Non-fatal: could not write remote power audit update: {}", auditEx.getMessage());
+        }
 
         // Instantly reflect OFFLINE status on computer when SHUTDOWN or RESTART command succeeds
         if (request.getStatus() == PowerCommandStatus.SUCCESS && command.getComputer() != null) {

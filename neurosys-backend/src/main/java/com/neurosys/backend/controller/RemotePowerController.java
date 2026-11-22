@@ -23,7 +23,7 @@ public class RemotePowerController {
 
     private final RemotePowerService remotePowerService;
 
-    @PostMapping("/computers/{computerId}/lock")
+    @PostMapping({"/computers/{computerId}/lock", "/computers/{computerId}/power/lock"})
     @Operation(summary = "Lock Workstation", description = "Lock current Windows session on target computer")
     public ResponseEntity<ApiResponse<RemotePowerCommandDto>> lockComputer(
             @PathVariable String computerId,
@@ -33,7 +33,7 @@ public class RemotePowerController {
         return ResponseEntity.ok(ApiResponse.success("Lock command issued successfully", command));
     }
 
-    @PostMapping("/computers/{computerId}/restart")
+    @PostMapping({"/computers/{computerId}/restart", "/computers/{computerId}/power/restart"})
     @Operation(summary = "Restart Windows", description = "Safely restart target Windows workstation")
     public ResponseEntity<ApiResponse<RemotePowerCommandDto>> restartComputer(
             @PathVariable String computerId,
@@ -43,7 +43,7 @@ public class RemotePowerController {
         return ResponseEntity.ok(ApiResponse.success("Restart command issued successfully", command));
     }
 
-    @PostMapping("/computers/{computerId}/shutdown")
+    @PostMapping({"/computers/{computerId}/shutdown", "/computers/{computerId}/power/shutdown"})
     @Operation(summary = "Shut Down Windows", description = "Safely shut down target Windows workstation")
     public ResponseEntity<ApiResponse<RemotePowerCommandDto>> shutdownComputer(
             @PathVariable String computerId,
