@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   BrainCircuit, 
@@ -27,6 +27,10 @@ import {
 const LandingPage = () => {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    document.title = "Real Time System Monitoring with AI Prediction";
+  }, []);
 
   const scrollToSection = (id) => {
     setMobileMenuOpen(false);
@@ -124,7 +128,7 @@ const LandingPage = () => {
               </div>
 
               <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.1]">
-                Smarter Computer Lab Management
+                Real Time System Monitoring with AI Prediction
               </h1>
 
               <p className="text-base sm:text-lg text-slate-700 font-medium max-w-2xl leading-relaxed">
