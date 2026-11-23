@@ -6,6 +6,7 @@ import {
   Cpu, 
   Activity, 
   HardDrive, 
+  Thermometer, 
   FileText, 
   BrainCircuit, 
   Terminal, 
@@ -114,6 +115,7 @@ const ComputerDetails = () => {
   const cpu = latestMetric?.cpuUsagePercent ?? computer?.currentCpuUsage ?? computer?.lastRecordedCpuUsage ?? 0;
   const ram = latestMetric?.memoryUsagePercent ?? computer?.currentRamUsage ?? computer?.lastRecordedRamUsage ?? 0;
   const diskFree = latestMetric?.diskFreeGb ?? (computer?.totalRamMb ? Math.round(computer.totalRamMb / 100) : 120);
+  const temp = latestMetric?.cpuTemperature ?? 45;
   const isOnline = computer?.status === 'ONLINE' || computer?.status === 'WARNING';
 
   // Format Recharts Chart Data (Chronological Order)
@@ -121,7 +123,8 @@ const ComputerDetails = () => {
     time: m.recordedAt ? new Date(m.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A',
     cpu: Math.round(m.cpuUsagePercent ?? 0),
     ram: Math.round(m.memoryUsagePercent ?? 0),
-    diskFree: Math.round(m.diskFreeGb ?? 0)
+    diskFree: Math.round(m.diskFreeGb ?? 0),
+    temp: Math.round(m.cpuTemperature ?? 45)
   })).reverse();
 
   return (
@@ -181,7 +184,7 @@ const ComputerDetails = () => {
       )}
 
       {/* Hardware Telemetry Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in-up">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in-up">
         {/* CPU */}
         <div className="card-elevated p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
@@ -232,6 +235,25 @@ const ComputerDetails = () => {
             <div className="font-display text-display text-on-surface">{diskFree} <span className="text-body-md font-body-md text-secondary">GB</span></div>
             <div className="w-full h-2 bg-surface-container-high rounded-full overflow-hidden mt-2">
               <div className="h-full rounded-full bg-secondary" style={{ width: `${Math.min(100, Math.max(10, (diskFree / 256) * 100))}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* CPU Temp */}
+        <div className="card-elevated p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-label-md text-label-md text-secondary uppercase font-bold flex items-center gap-1.5">
+              <Thermometer className="w-4 h-4 text-[#f59e0b]" /> Thermal Temp
+            </span>
+            <span className="font-mono-sm text-mono-sm font-bold text-[#f59e0b]">{Math.round(temp)}°C</span>
+          </div>
+          <div>
+            <div className="font-display text-display text-on-surface">{Math.round(temp)}°C</div>
+            <div className="w-full h-2 bg-surface-container-high rounded-full overflow-hidden mt-2">
+              <div 
+                className={`h-full rounded-full ${temp >= 80 ? 'bg-error' : 'bg-[#f59e0b]'}`} 
+                style={{ width: `${Math.min(100, Math.max(10, (temp / 100) * 100))}%` }} 
+              />
             </div>
           </div>
         </div>
